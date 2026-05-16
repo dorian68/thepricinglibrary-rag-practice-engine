@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from .llm import LocalLLM
@@ -219,8 +220,10 @@ class MaterialGenerator:
         return " ".join(part for part in parts if part).strip()
 
     def _exercise_title(self, request: ExerciseRequest) -> str:
-        focus = request.free_prompt or request.topic or request.product or request.concept
-        return f"Cas pratique - {focus or 'finance de marche'}"
+        focus = request.topic or request.product or request.concept or "finance de marche"
+        if len(focus) > 90:
+            focus = focus[:87].rstrip() + "..."
+        return f"Cas pratique - {focus}"
 
     def _source_lines(self, context: GenerationContext) -> str:
         if not context.sources:
@@ -247,6 +250,8 @@ class MaterialGenerator:
     ) -> str:
         product = request.product or "instrument a identifier dans le contexte"
         concept = request.concept or request.topic or "concept principal"
+        requested_case = request.free_prompt or "Aucune contrainte numerique imposee."
+        numeric_controls = self._numeric_control_block(request)
         calc_line = (
             "Inclure des calculs progressifs et une interpretation economique."
             if request.require_calculations
@@ -266,15 +271,20 @@ Amener l'apprenant a comprendre {concept} sur {product} par une situation de mar
 - Consigne: {calc_line}
 
 ## Scenario
-Un desk doit analyser une situation de marche autour de {product}. L'apprenant recoit
-des informations partielles, doit identifier les risques, choisir les donnees utiles,
-puis produire une decision argumentee.
+Un desk doit analyser une situation de marche autour de {product}. L'apprenant
+doit raisonner comme un operationnel: lire les donnees, valoriser ou approximer,
+calculer les sensibilites/P&L, puis proposer une action de hedge ou de gestion.
+
+## Contraintes donnees par le demandeur
+{requested_case}
+
+## Garde-fous numeriques a respecter
+{numeric_controls}
 
 ## Donnees de depart
-- Spot initial: a fixer par l'enseignant ou par un jeu de donnees local.
-- Horizon: 1 mois a 1 an selon le produit.
-- Volatilite, taux, spread ou carry: fournis dans l'enonce si necessaire.
-- Contraintes: expliquer chaque hypothese et distinguer donnees observees et hypotheses.
+- Reprendre toutes les donnees numeriques imposees ci-dessus.
+- Si une donnee manque, poser une hypothese simple et visible.
+- Distinguer donnees de marche observees, approximation de pricing et jugement de trader.
 
 ## Questions
 {self._numbered_questions(request)}
@@ -283,12 +293,15 @@ puis produire une decision argumentee.
 - Commencer par qualifier le payoff, le risque principal et la sensibilite dominante.
 - Relier chaque calcul a une intuition economique.
 - Justifier toute approximation.
+- Montrer les formules utilisees avant l'application numerique.
+- Terminer par une decision operationnelle: hedge, monitoring, escalation ou no-trade.
 
 ## Corrige type
 Le corrige doit:
 - rappeler les hypotheses;
-- derouler la methode;
+- derouler la methode et les calculs numeriques;
 - donner l'interpretation financiere;
+- expliquer ce que ferait un trader, un sales ou un risk manager;
 - signaler les limites du raisonnement;
 - citer les extraits sources pertinents.
 
@@ -403,6 +416,12 @@ Non-negotiable rules:
 - Keep a professional market-finance tone.
 - Include source markers like [S1], [S2] when using retrieved material.
 - Make the output directly usable in a SaaS learning platform.
+- If the user supplied numerical data, use it. Do not replace it with placeholders.
+- Include an explicit worked correction with formulas, substitutions and final numbers.
+- Respect units exactly. Example: "250k EUR par 1%" times a -2% move means 250k * (-2), not 250k * (-0.02).
+- Include a front-office or risk-management action: hedge, rebalance, monitor, escalate, quote or reject.
+- Avoid generic textbook questions. Every question must map to a concrete desk task.
+- If a "Garde-fous numeriques" section is present, do not contradict those values.
 
 Retrieved context:
 {source_text or 'No retrieved context.'}
@@ -428,3 +447,152 @@ Retrieved context:
         run_id = stable_id(kind, str(request), str(response)[:300], size=24)
         self.store.save_generation(run_id, kind, request, response)
 
+    def _numeric_control_block(self, request: ExerciseRequest) -> str:
+        text = " ".join(
+            part
+            for part in [
+                request.free_prompt or "",
+                request.topic or "",
+                request.product or "",
+                request.concept or "",
+            ]
+            if part
+        )
+        controls = []
+        controls.extend(self._options_book_controls(text))
+        controls.extend(self._swap_controls(text))
+        controls.extend(self._barrier_controls(text))
+        if not controls:
+            return (
+                "- Aucun calcul automatique detecte. Le corrige doit expliciter "
+                "les hypotheses et verifier les ordres de grandeur."
+            )
+        return "\n".join(f"- {item}" for item in controls)
+
+    def _options_book_controls(self, text: str) -> list[str]:
+        lower = text.lower()
+        if not all(term in lower for term in ["delta", "gamma", "vega", "theta"]):
+            return []
+        delta = self._extract_k_amount(lower, r"delta\s*([+-]?\s*\d+(?:[.,]\d+)?)\s*k")
+        gamma = self._extract_k_amount(lower, r"gamma\s*([+-]?\s*\d+(?:[.,]\d+)?)\s*k")
+        vega = self._extract_k_amount(lower, r"vega\s*([+-]?\s*\d+(?:[.,]\d+)?)\s*k")
+        theta = self._extract_k_amount(lower, r"theta\s*([+-]?\s*\d+(?:[.,]\d+)?)\s*k")
+        spot_move = self._extract_number(lower, r"spot\s*([+-]?\s*\d+(?:[.,]\d+)?)\s*%")
+        vol_move = self._extract_number(lower, r"vol(?:atilite)?\s*([+-]?\s*\d+(?:[.,]\d+)?)")
+        if None in (delta, gamma, vega, theta, spot_move, vol_move):
+            return []
+        delta_pnl = delta * spot_move
+        gamma_pnl = 0.5 * gamma * (spot_move**2)
+        vega_pnl = vega * vol_move
+        theta_pnl = theta
+        total = delta_pnl + gamma_pnl + vega_pnl + theta_pnl
+        return [
+            (
+                "Book greeks: les sensibilites sont exprimees par 1% de spot, "
+                "par (1%)^2 de spot, par point de vol et par jour."
+            ),
+            f"P&L delta = {delta:,.0f} * ({spot_move:g}) = {delta_pnl:,.0f} EUR.",
+            (
+                f"P&L gamma = 0.5 * {gamma:,.0f} * ({spot_move:g})^2 "
+                f"= {gamma_pnl:,.0f} EUR."
+            ),
+            f"P&L vega = {vega:,.0f} * ({vol_move:g}) = {vega_pnl:,.0f} EUR.",
+            f"P&L theta = {theta_pnl:,.0f} EUR.",
+            f"P&L total approx = {total:,.0f} EUR.",
+        ]
+
+    def _swap_controls(self, text: str) -> list[str]:
+        lower = text.lower()
+        if "swap" not in lower or not any(term in lower for term in ["dv01", "annuity", "annuite", "annuité"]):
+            return []
+        notional = self._extract_m_amount(lower, r"notionnel\s*([+-]?\s*\d+(?:[.,]\d+)?)\s*m")
+        fixed = self._extract_number(lower, r"(?:fixed coupon|taux fixe|coupon fixe)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)\s*%")
+        par = self._extract_number(lower, r"(?:par swap rate|taux swap actuel|par rate actuel)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)\s*%")
+        annuity = self._extract_number(lower, r"(?:annuity|annuite|annuité)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)")
+        shock_bp = self._extract_number(lower, r"(?:monte|hausse|up|rise)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)\s*bp")
+        if None in (notional, fixed, par, annuity):
+            return []
+        dv01 = annuity * notional * 0.0001
+        payer_pv = (par / 100 - fixed / 100) * annuity * notional
+        controls = [
+            f"DV01 = annuite * notionnel * 1bp = {annuity:g} * {notional:,.0f} * 0.0001 = {dv01:,.0f} EUR/bp.",
+            (
+                f"PV payer approx = (par rate - fixed coupon) * annuite * notionnel "
+                f"= ({par:g}% - {fixed:g}%) * {annuity:g} * {notional:,.0f} = {payer_pv:,.0f} EUR."
+            ),
+        ]
+        if shock_bp is not None:
+            pnl = dv01 * shock_bp
+            controls.append(
+                f"Pour un payer swap, hausse de {shock_bp:g}bp => P&L approx +DV01*shock = {pnl:,.0f} EUR."
+            )
+        return controls
+
+    def _barrier_controls(self, text: str) -> list[str]:
+        lower = text.lower()
+        if "barriere" not in lower and "barrier" not in lower:
+            return []
+        spot = self._extract_number(lower, r"spot\s*([+-]?\s*\d+(?:[.,]\d+)?)")
+        strike = self._extract_number(lower, r"(?:strike|prix d'exercice)\s*([+-]?\s*\d+(?:[.,]\d+)?)")
+        barrier = (
+            self._extract_number(
+                lower,
+                r"(?:barriere|barrière|barrier)\s+(?:down-and-out|down and out|up-and-out|up and out|knock-out|knock out|ko)\s*[:=]?\s*([+-]?\s*\d+(?:[.,]\d+)?)",
+            )
+            or self._extract_number(
+                lower,
+                r"(?:barriere|barrière|barrier)\s+(?:de|a|à)\s*([+-]?\s*\d+(?:[.,]\d+)?)",
+            )
+        )
+        notional = self._extract_m_amount(lower, r"notionnel\s*(?:eur\s*)?([+-]?\s*\d+(?:[.,]\d+)?)\s*m")
+        if None in (strike, barrier, notional):
+            return []
+        controls = [
+            (
+                "Option barriere down-and-out: si la barriere est touchee pendant "
+                "la vie du produit, payoff final = 0."
+            )
+        ]
+        scenarios = re.findall(r"spot\s*(?:a|à)\s*([+-]?\d+(?:[.,]\d+)?)", lower)
+        for raw in scenarios[:4]:
+            final_spot = self._parse_float(raw)
+            if final_spot is None:
+                continue
+            if final_spot <= barrier:
+                payoff = 0.0
+                controls.append(f"Scenario spot {final_spot:g}: barriere touchee/atteinte => payoff = 0.")
+            else:
+                payoff = max(final_spot - strike, 0) * notional
+                controls.append(
+                    f"Scenario spot {final_spot:g} sans knock-out: payoff call = max({final_spot:g}-{strike:g},0)*{notional:,.0f} = {payoff:,.0f} USD approx."
+                )
+        if spot is not None:
+            controls.append(
+                f"Spot initial {spot:g}; distance a la barriere = {(spot / barrier - 1) * 100:,.2f}%."
+            )
+        return controls
+
+    def _extract_number(self, text: str, pattern: str) -> float | None:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if not match:
+            return None
+        return self._parse_float(match.group(1))
+
+    def _extract_k_amount(self, text: str, pattern: str) -> float | None:
+        value = self._extract_number(text, pattern)
+        if value is None:
+            return None
+        return value * 1000
+
+    def _extract_m_amount(self, text: str, pattern: str) -> float | None:
+        value = self._extract_number(text, pattern)
+        if value is None:
+            return None
+        return value * 1_000_000
+
+    def _parse_float(self, raw: str) -> float | None:
+        cleaned = raw.replace(" ", "").replace(",", ".").replace("+", "")
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None

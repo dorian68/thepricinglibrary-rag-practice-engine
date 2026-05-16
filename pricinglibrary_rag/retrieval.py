@@ -70,6 +70,13 @@ class LocalRetriever:
             asset_class=asset_class,
             tags=tags or [],
         )
+        if not chunks and (product or concept or asset_class or tags):
+            chunks = self._get_chunks(
+                product=None,
+                concept=None,
+                asset_class=None,
+                tags=[],
+            )
         if not chunks:
             return []
 
