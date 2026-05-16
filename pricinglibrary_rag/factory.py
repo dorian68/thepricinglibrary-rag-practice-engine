@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from .config import Settings
 from .embeddings import EmbeddingBackend, build_embedding_backend
+from .evaluation import ProductEvaluator
 from .generation import MaterialGenerator
 from .ingestion import IngestionService
 from .llm import LocalLLM, build_llm
@@ -20,6 +21,7 @@ class Services:
     ingestion: IngestionService
     generator: MaterialGenerator
     llm: LocalLLM
+    evaluator: ProductEvaluator
 
 
 def build_services(settings: Settings | None = None) -> Services:
@@ -38,11 +40,14 @@ def build_services(settings: Settings | None = None) -> Services:
         openai_api_key=settings.openai_api_key,
         openai_model=settings.openai_model,
         openai_base_url=settings.openai_base_url,
+        openai_timeout_seconds=settings.openai_timeout_seconds,
+        openai_max_retries=settings.openai_max_retries,
         ollama_url=settings.ollama_url,
         ollama_model=settings.ollama_model,
         transformers_model_path=settings.transformers_model_path,
     )
     generator = MaterialGenerator(retriever, llm, store=store)
+    evaluator = ProductEvaluator()
     return Services(
         settings=settings,
         store=store,
@@ -51,4 +56,5 @@ def build_services(settings: Settings | None = None) -> Services:
         ingestion=ingestion,
         generator=generator,
         llm=llm,
+        evaluator=evaluator,
     )

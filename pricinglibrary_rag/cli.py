@@ -7,6 +7,7 @@ from typing import Any
 
 from .factory import build_services
 from .schemas import (
+    CalculationRequest,
     CourseRequest,
     DocumentMetadata,
     ExerciseRequest,
@@ -50,6 +51,10 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--concept")
     search.add_argument("--asset-class")
 
+    calc = sub.add_parser("calculate", help="Run deterministic practice calculators.")
+    calc.add_argument("prompt")
+    calc.add_argument("--family", default="auto")
+
     exercise = sub.add_parser("exercise", help="Generate a practical exercise.")
     exercise.add_argument("--topic")
     exercise.add_argument("--product")
@@ -77,6 +82,13 @@ def build_parser() -> argparse.ArgumentParser:
     pack.add_argument("--duration", type=int, default=120)
     pack.add_argument("--exercises", type=int, default=3)
     pack.add_argument("--language", default="fr")
+
+    library = sub.add_parser("library", help="List generated course/exercise assets.")
+    library.add_argument("--kind")
+    library.add_argument("--limit", type=int, default=20)
+
+    evaluate = sub.add_parser("evaluate", help="Run product quality evaluation cases.")
+    evaluate.add_argument("--limit", type=int)
 
     serve = sub.add_parser("serve", help="Run the FastAPI server.")
     serve.add_argument("--host", default="127.0.0.1")
@@ -180,6 +192,38 @@ def main(argv: list[str] | None = None) -> None:
             )
         )
         _print_json(result)
+        return
+
+    if args.command == "calculate":
+        request = CalculationRequest(prompt=args.prompt, family_hint=args.family)
+        pack = services.generator.calculator.build_pack(
+            request.prompt,
+            family_hint=request.family_hint,
+        )
+        print(pack.as_markdown())
+        return
+
+    if args.command == "library":
+        items = services.store.list_generation_runs(kind=args.kind, limit=args.limit)
+        _print_json(
+            [
+                {
+                    "id": item.id,
+                    "kind": item.kind,
+                    "title": item.title,
+                    "created_at": item.created_at,
+                }
+                for item in items
+            ]
+        )
+        return
+
+    if args.command == "evaluate":
+        report = services.evaluator.run_generation_suite(
+            services.generator,
+            limit=args.limit,
+        )
+        _print_json(report)
         return
 
     if args.command == "exercise":

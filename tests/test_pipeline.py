@@ -21,6 +21,8 @@ def _settings(tmp_path: Path) -> Settings:
         openai_api_key=None,
         openai_model="gpt-4o-mini",
         openai_base_url=None,
+        openai_timeout_seconds=90,
+        openai_max_retries=1,
         ollama_url="http://localhost:11434",
         ollama_model="dummy",
         transformers_model_path=None,

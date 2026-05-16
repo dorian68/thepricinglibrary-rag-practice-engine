@@ -37,10 +37,14 @@ class OpenAIChatLLM(LocalLLM):
         api_key: str | None,
         model: str = "gpt-4o-mini",
         base_url: str | None = None,
+        timeout_seconds: float = 90,
+        max_retries: int = 1,
     ) -> None:
         self.api_key = api_key
         self.model = model
         self.base_url = base_url
+        self.timeout_seconds = timeout_seconds
+        self.max_retries = max_retries
         self.name = f"openai:{model}"
 
     def generate(self, prompt: str, *, max_tokens: int = 2200) -> str:
@@ -53,7 +57,11 @@ class OpenAIChatLLM(LocalLLM):
         except Exception as exc:
             raise RuntimeError("The openai package is not installed.") from exc
 
-        client_kwargs = {"api_key": self.api_key}
+        client_kwargs = {
+            "api_key": self.api_key,
+            "timeout": self.timeout_seconds,
+            "max_retries": self.max_retries,
+        }
         if self.base_url:
             client_kwargs["base_url"] = self.base_url
         client = OpenAI(**client_kwargs)
@@ -141,6 +149,8 @@ def build_llm(
     openai_api_key: str | None = None,
     openai_model: str = "gpt-4o-mini",
     openai_base_url: str | None = None,
+    openai_timeout_seconds: float = 90,
+    openai_max_retries: int = 1,
     ollama_url: str,
     ollama_model: str,
     transformers_model_path: str | None,
@@ -152,6 +162,8 @@ def build_llm(
             api_key=openai_api_key,
             model=openai_model,
             base_url=openai_base_url,
+            timeout_seconds=openai_timeout_seconds,
+            max_retries=openai_max_retries,
         )
     if provider == "ollama":
         return OllamaLLM(ollama_url, ollama_model)

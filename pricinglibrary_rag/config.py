@@ -45,6 +45,8 @@ class Settings:
     openai_api_key: str | None
     openai_model: str
     openai_base_url: str | None
+    openai_timeout_seconds: float
+    openai_max_retries: int
     ollama_url: str
     ollama_model: str
     transformers_model_path: str | None
@@ -70,6 +72,8 @@ class Settings:
             openai_api_key=os.environ.get("TPL_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY"),
             openai_model=os.environ.get("TPL_OPENAI_MODEL", "gpt-4o-mini"),
             openai_base_url=os.environ.get("TPL_OPENAI_BASE_URL"),
+            openai_timeout_seconds=float(os.environ.get("TPL_OPENAI_TIMEOUT_SECONDS", "90")),
+            openai_max_retries=int(os.environ.get("TPL_OPENAI_MAX_RETRIES", "1")),
             ollama_url=os.environ.get("TPL_OLLAMA_URL", "http://localhost:11434"),
             ollama_model=os.environ.get("TPL_OLLAMA_MODEL", "llama3.1:8b"),
             transformers_model_path=os.environ.get("TPL_TRANSFORMERS_MODEL_PATH"),

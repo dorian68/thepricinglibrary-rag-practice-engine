@@ -39,6 +39,19 @@ class StoredChunk:
     document_source: str | None = None
 
 
+@dataclass(frozen=True)
+class StoredGenerationRun:
+    id: str
+    kind: str
+    request: dict[str, Any]
+    response: dict[str, Any]
+    created_at: str
+
+    @property
+    def title(self) -> str:
+        return str(self.response.get("title") or self.request.get("topic") or self.id)
+
+
 class LocalStore:
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path).expanduser().resolve()
@@ -297,6 +310,43 @@ class LocalStore:
                 ),
             )
 
+    def list_generation_runs(
+        self,
+        *,
+        kind: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[StoredGenerationRun]:
+        query = "SELECT * FROM generation_runs"
+        params: list[Any] = []
+        if kind:
+            query += " WHERE kind = ?"
+            params.append(kind)
+        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        with self.connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [self._generation_from_row(row) for row in rows]
+
+    def get_generation_run(self, run_id: str) -> StoredGenerationRun | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM generation_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+        return self._generation_from_row(row) if row else None
+
+    def count_generation_runs(self, *, kind: str | None = None) -> int:
+        with self.connect() as conn:
+            if kind:
+                return int(
+                    conn.execute(
+                        "SELECT count(*) FROM generation_runs WHERE kind = ?",
+                        (kind,),
+                    ).fetchone()[0]
+                )
+            return int(conn.execute("SELECT count(*) FROM generation_runs").fetchone()[0])
+
     def _document_from_row(self, row: sqlite3.Row) -> StoredDocument:
         return StoredDocument(
             id=str(row["id"]),
@@ -330,6 +380,15 @@ class LocalStore:
             metadata=metadata,
             document_title=row["document_title"] if "document_title" in row.keys() else None,
             document_source=row["document_source"] if "document_source" in row.keys() else None,
+        )
+
+    def _generation_from_row(self, row: sqlite3.Row) -> StoredGenerationRun:
+        return StoredGenerationRun(
+            id=str(row["id"]),
+            kind=str(row["kind"]),
+            request=json.loads(row["request_json"] or "{}"),
+            response=json.loads(row["response_json"] or "{}"),
+            created_at=str(row["created_at"]),
         )
 
     def _metadata_matches(

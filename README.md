@@ -27,6 +27,8 @@ pricinglibrary_rag/
   embeddings.py       embeddings locaux
   retrieval.py        RAG local hybride
   generation.py       cours, exercices, packs
+  calculators.py      answer keys numeriques controles
+  evaluation.py       score qualite produit
   storage.py          SQLite + FTS
 ```
 
@@ -115,9 +117,87 @@ Endpoints principaux:
 - `GET /documents`
 - `POST /documents/ingest`
 - `POST /rag/search`
+- `POST /calculate/practice`
 - `POST /generate/exercise`
 - `POST /generate/course`
 - `POST /generate/material-pack`
+- `GET /library/generations`
+- `GET /library/generations/{id}`
+- `GET /evaluation/cases`
+- `POST /evaluation/response`
+- `POST /evaluation/suite`
+
+## Practice Library
+
+Le backend est pense comme une bibliotheque pedagogique, pas comme un simple
+chatbot. Chaque generation est sauvegardee dans `generation_runs` et peut etre
+retrouvee via l'API ou le CLI.
+
+```powershell
+python -m pricinglibrary_rag.cli library --limit 10
+```
+
+Les cours sortent comme modules reutilisables:
+
+- objectifs d'apprentissage;
+- track pedagogique;
+- labs pratiques;
+- banque d'exercices rattaches;
+- script enseignant;
+- supports a produire;
+- sources RAG.
+
+Les exercices sortent comme cas pratiques de desk:
+
+- donnees de marche;
+- taches operationnelles;
+- calculs;
+- corriges;
+- interpretation;
+- decision de hedge/risk/monitoring;
+- sources.
+
+## Calculateurs Pedagogiques
+
+Les calculs importants sont controles par le backend avant d'etre donnes au LLM.
+Cela evite les erreurs d'unites et donne une answer key plus fiable.
+
+Familles couvertes:
+
+- `options_book_greeks`: P&L delta/gamma/vega/theta;
+- `rates_swap_dv01`: PV, DV01 et shock P&L de swap;
+- `fx_barrier_option`: payoff de barriere et gap risk;
+- `bond_duration_dv01`: duration, DV01 et shock obligataire;
+- `vanilla_option_black_scholes`: prix et greeks Black-Scholes;
+- `cds_cs01`: CS01, carry et spread shock;
+- `parametric_var`: VaR parametrique simple.
+
+Tester un calcul:
+
+```powershell
+python -m pricinglibrary_rag.cli calculate "book delta +250k EUR par 1%, gamma -80k EUR par 1%^2, vega +120k EUR par vol point, theta -15k EUR par jour. Scenario spot -2%, vol +3 points"
+python -m pricinglibrary_rag.cli calculate --family cds_cs01 "CDS notionnel 50m spread 120bp risky annuity 4.2 shock 25bp"
+```
+
+## Evaluation Produit
+
+Le banc d'evaluation verifie que les exercices generes sont utilisables pour
+ThePricingLibrary:
+
+- sources RAG presentes;
+- marqueurs de source `[S1]`;
+- calculs numeriques;
+- corrige;
+- formule ou sensibilite;
+- action operationnelle;
+- pas de placeholder generique;
+- calculateur specialise reconnu.
+
+Lancer l'evaluation:
+
+```powershell
+python -m pricinglibrary_rag.cli evaluate --limit 3
+```
 
 ## Mode generation OpenAI
 
@@ -129,6 +209,8 @@ Tu peux aussi creer un `.env` dans ce dossier:
 ```text
 TPL_OPENAI_API_KEY=sk-...
 TPL_OPENAI_MODEL=gpt-4o-mini
+TPL_OPENAI_TIMEOUT_SECONDS=90
+TPL_OPENAI_MAX_RETRIES=1
 ```
 
 Pour tester sans appel LLM:

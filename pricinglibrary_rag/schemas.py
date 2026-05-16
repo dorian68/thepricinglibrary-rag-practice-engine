@@ -14,6 +14,16 @@ ExerciseFormat = Literal[
     "mcq",
     "mixed",
 ]
+ProductFamily = Literal[
+    "auto",
+    "options_book_greeks",
+    "rates_swap_dv01",
+    "fx_barrier_option",
+    "bond_duration_dv01",
+    "vanilla_option_black_scholes",
+    "cds_cs01",
+    "parametric_var",
+]
 
 
 class DocumentMetadata(BaseModel):
@@ -109,6 +119,18 @@ class MaterialPackRequest(BaseModel):
     language: Literal["fr", "en"] = "fr"
 
 
+class CalculationRequest(BaseModel):
+    prompt: str
+    family_hint: ProductFamily = "auto"
+
+
+class CalculationResponse(BaseModel):
+    family: str
+    title: str
+    markdown: str
+    pack: dict[str, Any]
+
+
 class GenerationResponse(BaseModel):
     kind: str
     title: str
@@ -116,3 +138,24 @@ class GenerationResponse(BaseModel):
     sources: list[SourceRef]
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+
+class LibraryItem(BaseModel):
+    id: str
+    kind: str
+    title: str
+    created_at: str
+    request: dict[str, Any]
+    response: dict[str, Any]
+
+
+class EvaluationCase(BaseModel):
+    name: str
+    request: ExerciseRequest
+
+
+class EvaluationReport(BaseModel):
+    total: int
+    passed: int
+    failed: int
+    average_score: float
+    results: list[dict[str, Any]]
