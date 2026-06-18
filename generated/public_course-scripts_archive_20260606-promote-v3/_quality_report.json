@@ -1,0 +1,218 @@
+{
+  "course_dir": "/course-scripts/C:/Users/Labry/Documents/THEPRICINGLIBRARY/WEBSITE/thepricinglab/public/course-scripts",
+  "courses": [
+    {
+      "slug": "barrier-options-gap-risk",
+      "status": "pass",
+      "quality_score": 100,
+      "module_count": 5,
+      "written_lesson_count": 5,
+      "formula_count": 3,
+      "source_ref_count": 10,
+      "source_count": 10,
+      "modules": [
+        "Regle de payoff et chemin",
+        "Table de scenarios",
+        "Risque de gap",
+        "Monitoring desk",
+        "Debrief modele"
+      ],
+      "issues": []
+    },
+    {
+      "slug": "credit-derivatives-cds",
+      "status": "pass",
+      "quality_score": 100,
+      "module_count": 4,
+      "written_lesson_count": 4,
+      "formula_count": 3,
+      "source_ref_count": 10,
+      "source_count": 10,
+      "modules": [
+        "Lire le ticket CDS",
+        "Carry",
+        "CS01",
+        "Decision credit"
+      ],
+      "issues": []
+    },
+    {
+      "slug": "fixed-income-bonds-duration",
+      "status": "fail",
+      "quality_score": 90,
+      "module_count": 4,
+      "written_lesson_count": 4,
+      "formula_count": 3,
+      "source_ref_count": 10,
+      "source_count": 10,
+      "modules": [
+        "Carte des flux de tresorerie",
+        "Prix et rendement",
+        "Duration et DV01",
+        "Convexite et limites"
+      ],
+      "issues": [
+        "missing expected keywords: cash-flow"
+      ]
+    },
+    {
+      "slug": "implied-volatility-smile",
+      "status": "pass",
+      "quality_score": 100,
+      "module_count": 4,
+      "written_lesson_count": 4,
+      "formula_count": 3,
+      "source_ref_count": 10,
+      "source_count": 10,
+      "modules": [
+        "Lire la chaine d'options",
+        "Inversion en IV",
+        "Smile et skew",
+        "Fit utilisable"
+      ],
+      "issues": []
+    },
+    {
+      "slug": "market-risk-var-stress",
+      "status": "pass",
+      "quality_score": 100,
+      "module_count": 4,
+      "written_lesson_count": 4,
+      "formula_count": 3,
+      "source_ref_count": 10,
+      "source_count": 10,
+      "modules": [
+        "Definir la question de risque",
+        "Calcul VaR",
+        "Stress overlay",
+        "Escalade"
+      ],
+      "issues": []
+    },
+    {
+      "slug": "monte-carlo-pricing",
+      "status": "pass",
+      "quality_score": 100,
+      "module_count": 4,
+      "written_lesson_count": 4,
+      "formula_count": 3,
+      "source_ref_count": 10,
+      "source_count": 10,
+      "modules": [
+        "Ticket de simulation",
+        "Generer les chemins",
+        "Prix et intervalle",
+        "Reduction de variance"
+      ],
+      "issues": []
+    },
+    {
+      "slug": "options-book-greeks-pnl",
+      "status": "pass",
+      "quality_score": 100,
+      "module_count": 4,
+      "written_lesson_count": 4,
+      "formula_count": 3,
+      "source_ref_count": 10,
+      "source_count": 10,
+      "modules": [
+        "Lire le Greek report",
+        "P&L attribution",
+        "Hedge action",
+        "Communication risk"
+      ],
+      "issues": []
+    },
+    {
+      "slug": "rates-swaps-dv01",
+      "status": "pass",
+      "quality_score": 100,
+      "module_count": 5,
+      "written_lesson_count": 5,
+      "formula_count": 3,
+      "source_ref_count": 10,
+      "source_count": 10,
+      "modules": [
+        "Lire le ticket swap",
+        "PV par coupon gap",
+        "DV01 et shock P&L",
+        "Hedge et basis risk",
+        "Debrief production"
+      ],
+      "issues": []
+    },
+    {
+      "slug": "stochastic-calculus-for-hedging",
+      "status": "pass",
+      "quality_score": 100,
+      "module_count": 4,
+      "written_lesson_count": 4,
+      "formula_count": 3,
+      "source_ref_count": 10,
+      "source_count": 10,
+      "modules": [
+        "SDE utile au hedge",
+        "Ito lemma pour P&L",
+        "Mesure risque-neutre",
+        "Limites du hedge continu"
+      ],
+      "issues": []
+    },
+    {
+      "slug": "structured-products-autocall",
+      "status": "pass",
+      "quality_score": 100,
+      "module_count": 5,
+      "written_lesson_count": 5,
+      "formula_count": 3,
+      "source_ref_count": 10,
+      "source_count": 10,
+      "modules": [
+        "Extraire le term sheet",
+        "Coupon et autocall",
+        "Protection barrier",
+        "Scenario table client",
+        "Desk risk"
+      ],
+      "issues": []
+    },
+    {
+      "slug": "vanilla-options-quote",
+      "status": "pass",
+      "quality_score": 100,
+      "module_count": 4,
+      "written_lesson_count": 4,
+      "formula_count": 3,
+      "source_ref_count": 10,
+      "source_count": 10,
+      "modules": [
+        "Lire le ticket vanilla",
+        "Prix Black-Scholes",
+        "Controle put-call parity",
+        "Greeks utiles au quote"
+      ],
+      "issues": []
+    },
+    {
+      "slug": "yield-curve-bootstrapping",
+      "status": "pass",
+      "quality_score": 100,
+      "module_count": 4,
+      "written_lesson_count": 4,
+      "formula_count": 3,
+      "source_ref_count": 10,
+      "source_count": 10,
+      "modules": [
+        "Lire les instruments de courbe",
+        "Bootstrap des facteurs d'actualisation",
+        "Zeros et forwards",
+        "Controle et usage desk"
+      ],
+      "issues": []
+    }
+  ],
+  "summary": {
+    "passed": 11,
+    "failed": 1
+  }
+}

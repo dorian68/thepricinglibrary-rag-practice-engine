@@ -157,6 +157,113 @@ Les exercices sortent comme cas pratiques de desk:
 - decision de hedge/risk/monitoring;
 - sources.
 
+## Qualification Pedagogique des Sources
+
+Chaque chunk ingere est classe et score pour la generation de cours, pas
+seulement stocke. Voir `pricinglibrary_rag/pedagogy.py`.
+
+Metadonnees produites par chunk (dans `chunks.metadata_json["pedagogy"]` + en
+colonnes SQLite `content_type`, `pedagogical_value`, `quality_score`,
+`usable_for_course`):
+
+- `content_type` parmi: theory, definition, formula, example, worked_example,
+  exercise, solution, case_study, historical_context, market_context, code,
+  table, diagram_description, methodology, warning, intuition, summary;
+- flags `contains_formula/example/exercise/definition/case_study`;
+- `difficulty_level` (beginner/intermediate/advanced/expert);
+- `pedagogical_value` 0-100 (utilite pour batir un cours);
+- `quality_score` 0-100 (proprete structurelle, anti-OCR/anti-TOC);
+- `usable_for_course` (porte d'eligibilite).
+
+La generation de cours analyse la couverture pedagogique des sources retrouvees
+et signale les **trous** (definitions/exemples/exercices manquants) au lieu
+d'inventer. Le statut sort en `usable / partially_usable / not_usable`.
+
+Voir la couverture du corpus:
+
+```powershell
+python -m pricinglibrary_rag.cli pedagogy-stats
+```
+
+Classer les chunks ingeres avant cette fonctionnalite (backfill idempotent;
+`--force` reclasse tout le corpus apres une amelioration du classifieur):
+
+```powershell
+python -m pricinglibrary_rag.cli backfill-pedagogy
+python -m pricinglibrary_rag.cli backfill-pedagogy --force
+```
+
+Inferer le theme/sous-theme/asset_class de chaque document (depuis son titre et
+ses premiers chunks) pour cibler les sources par track:
+
+```powershell
+python -m pricinglibrary_rag.cli enrich-documents
+```
+
+La generation de cours produit en plus un **plan pedagogique adaptatif**: chaque
+etape du parcours (definition -> intuition -> formule -> exemple -> exemple
+resolu -> exercice -> corrige -> cas pratique -> resume) est rattachee aux
+sources `[Sx]` qui la couvrent, ou marquee ABSENT (a generer, pas a extraire).
+
+Endpoint API: `GET /sources/pedagogy-stats`.
+
+### Debug et smoke test
+
+Auditer la qualite pedagogique du corpus reel:
+
+```powershell
+python scripts/debug_sources.py
+python scripts/debug_sources.py --sample 2000   # classification a la volee
+```
+
+Smoke test bout-en-bout du flux sources -> cours (offline, base jetable, LLM
+template, sources mock):
+
+```powershell
+python scripts/smoke_course_generation.py
+```
+
+Le smoke ingere des sources mock, les chunke, les classe, les score, genere un
+plan de cours et une section, verifie que les sources sont citees `[Sx]`,
+detecte les trous pedagogiques et affiche un rapport (sources loaded, chunks
+usable, definitions/examples/exercises found, average pedagogical score,
+missing content types, grounding OK/FAIL).
+
+## Cours enrichis (generation v2)
+
+Les cours ne sont plus du boilerplate. Chaque cours genere contient desormais:
+prerequis, niveau cible/public, intuition variee par lecon, formules, **exemple
+numerique resolu** (calcule par `calculators.py`, donc correct), **exercices
+corriges**, **mini-quiz QCM (5 questions)**, resume, et un marquage explicite
+`[extrait] / [reformule] / [genere]` (voir `course_blocks.py`).
+
+Les snippets de source sont nettoyes (ligatures, mots coupes, bruit OCR/table
+sont rejetes; l'extrait est retire plutot que d'afficher du bruit). Le retrieval
+des cours ne retient que les chunks `usable_for_course` au-dessus d'un seuil de
+qualite.
+
+Regenerer les 12 cours dans un dossier versionne non destructif:
+
+```powershell
+python scripts/generate_course_scripts.py --output-dir generated_v2 --llm-provider template
+```
+
+Gate qualite pedagogique (PASS si score >= 70, raisons detaillees):
+
+```powershell
+python scripts/audit_course_quality.py --dir generated_v2
+```
+
+Smoke test bout-en-bout (verifie exemple resolu, exercice corrige, quiz,
+snippets propres, absence de boilerplate, grounding):
+
+```powershell
+python scripts/smoke_course_generation.py
+```
+
+Promotion vers les cours actifs: voir `generated_v2/_PROMOTE.md` (archive d'abord,
+rien n'est remplace automatiquement).
+
 ## Calculateurs Pedagogiques
 
 Les calculs importants sont controles par le backend avant d'etre donnes au LLM.

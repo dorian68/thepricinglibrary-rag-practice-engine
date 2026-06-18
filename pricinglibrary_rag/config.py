@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -53,6 +53,20 @@ class Settings:
     chunk_target_chars: int
     chunk_overlap_chars: int
     max_context_chunks: int
+    # --- billing (Stripe) — defaulted so existing callers keep working ----
+    stripe_secret_key: str | None = None
+    stripe_webhook_secret: str | None = None
+    stripe_prices: dict[str, str] = field(default_factory=dict)
+    billing_checkout_mode: str = "subscription"
+    billing_success_url: str = "http://localhost:5173/billing/success?session_id={CHECKOUT_SESSION_ID}"
+    billing_cancel_url: str = "http://localhost:5173/pricing"
+
+    @property
+    def billing_configured(self) -> bool:
+        """True when real Stripe checkout can be created (secret key + at least
+        one price). When False the service runs in offline 'mock' mode and never
+        touches real money."""
+        return bool(self.stripe_secret_key) and bool(self.stripe_prices)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -80,6 +94,25 @@ class Settings:
             chunk_target_chars=int(os.environ.get("TPL_CHUNK_TARGET_CHARS", "2600")),
             chunk_overlap_chars=int(os.environ.get("TPL_CHUNK_OVERLAP_CHARS", "350")),
             max_context_chunks=int(os.environ.get("TPL_MAX_CONTEXT_CHUNKS", "8")),
+            stripe_secret_key=os.environ.get("STRIPE_SECRET_KEY") or os.environ.get("TPL_STRIPE_SECRET_KEY"),
+            stripe_webhook_secret=os.environ.get("STRIPE_WEBHOOK_SECRET") or os.environ.get("TPL_STRIPE_WEBHOOK_SECRET"),
+            stripe_prices={
+                plan: price
+                for plan, env_name in (
+                    ("starter", "STRIPE_PRICE_STARTER"),
+                    ("student", "STRIPE_PRICE_STUDENT"),
+                    ("pro", "STRIPE_PRICE_PRO"),
+                )
+                if (price := os.environ.get(env_name))
+            },
+            billing_checkout_mode=os.environ.get("TPL_BILLING_CHECKOUT_MODE", "subscription"),
+            billing_success_url=os.environ.get(
+                "TPL_BILLING_SUCCESS_URL",
+                "http://localhost:5173/billing/success?session_id={CHECKOUT_SESSION_ID}",
+            ),
+            billing_cancel_url=os.environ.get(
+                "TPL_BILLING_CANCEL_URL", "http://localhost:5173/pricing"
+            ),
         )
 
     def ensure_dirs(self) -> None:

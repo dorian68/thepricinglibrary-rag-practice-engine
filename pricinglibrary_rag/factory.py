@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .billing import BillingService
 from .config import Settings
 from .embeddings import EmbeddingBackend, build_embedding_backend
 from .evaluation import ProductEvaluator
@@ -22,6 +23,7 @@ class Services:
     generator: MaterialGenerator
     llm: LocalLLM
     evaluator: ProductEvaluator
+    billing: BillingService
 
 
 def build_services(settings: Settings | None = None) -> Services:
@@ -48,6 +50,7 @@ def build_services(settings: Settings | None = None) -> Services:
     )
     generator = MaterialGenerator(retriever, llm, store=store)
     evaluator = ProductEvaluator()
+    billing = BillingService(settings, store)
     return Services(
         settings=settings,
         store=store,
@@ -57,4 +60,5 @@ def build_services(settings: Settings | None = None) -> Services:
         generator=generator,
         llm=llm,
         evaluator=evaluator,
+        billing=billing,
     )

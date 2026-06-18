@@ -10,7 +10,7 @@ import numpy as np
 from .embeddings import EmbeddingBackend, cosine_similarity
 from .schemas import SearchRequest, SearchResponse, SourceRef
 from .storage import LocalStore, StoredChunk
-from .text_utils import concise_snippet, tokenize
+from .text_utils import clean_snippet, concise_snippet, tokenize
 
 
 @dataclass(frozen=True)
@@ -63,25 +63,46 @@ class LocalRetriever:
         concept: str | None = None,
         asset_class: str | None = None,
         tags: list[str] | None = None,
+        usable_only: bool = False,
+        min_quality: int | None = None,
     ) -> list[RetrievedChunk]:
+        has_filter = bool(product or concept or asset_class or tags)
         chunks = self._get_chunks(
             product=product,
             concept=concept,
             asset_class=asset_class,
             tags=tags or [],
         )
-        if not chunks and (product or concept or asset_class or tags):
-            chunks = self._get_chunks(
-                product=None,
-                concept=None,
-                asset_class=None,
-                tags=[],
-            )
+        # Course generation asks for clean, teachable chunks only. Apply the
+        # pedagogical quality gate but keep a safety net: never return empty
+        # just because the corpus predates classification.
+        if usable_only or min_quality is not None:
+            filtered = [
+                c
+                for c in chunks
+                if (not usable_only or c.usable_for_course)
+                and (min_quality is None or (c.quality_score or 0) >= min_quality)
+            ]
+            if len(filtered) >= max(top_k, 4):
+                chunks = filtered
+        # The metadata filter matches document/chunk metadata (not content) with
+        # strict AND semantics. On a sparsely tagged corpus this over-filters and
+        # starves generation of sources. When the filtered pool is too thin to
+        # rank meaningfully, fall back to the full corpus and let the hybrid
+        # semantic+lexical scorer surface on-topic chunks (the query already
+        # carries the product/concept terms).
+        min_pool = max(top_k * 3, 24)
+        if has_filter and len(chunks) < min_pool:
+            full = self._get_chunks(product=None, concept=None, asset_class=None, tags=[])
+            if len(full) > len(chunks):
+                chunks = full
+                product = concept = asset_class = None
+                tags = []
         if not chunks:
             return []
 
         query_vector = self.embeddings.embed_one(query)
-        matrix = self._get_matrix(chunks, product, concept, asset_class, tags or [])
+        matrix = self._get_matrix(chunks)
         vector_scores = cosine_similarity(query_vector, matrix)
 
         candidate_indices = set(
@@ -136,6 +157,9 @@ class LocalRetriever:
 
     def to_source_ref(self, item: RetrievedChunk) -> SourceRef:
         chunk = item.chunk
+        # clean_snippet returns "" when the excerpt is OCR noise / starts
+        # mid-word; we then show the reference only, never a garbled quote.
+        snippet = clean_snippet(chunk.content)
         return SourceRef(
             document_id=chunk.document_id,
             chunk_id=chunk.id,
@@ -145,7 +169,7 @@ class LocalRetriever:
             score=round(item.score, 6),
             vector_score=round(item.vector_score, 6),
             lexical_score=round(item.lexical_score, 6),
-            snippet=concise_snippet(chunk.content),
+            snippet=snippet,
         )
 
     def _stack_embeddings(self, chunks: list[StoredChunk]) -> np.ndarray:
@@ -170,15 +194,11 @@ class LocalRetriever:
             tags=tags,
         )
 
-    def _get_matrix(
-        self,
-        chunks: list[StoredChunk],
-        product: str | None,
-        concept: str | None,
-        asset_class: str | None,
-        tags: list[str],
-    ) -> np.ndarray:
-        if not product and not concept and not asset_class and not tags:
+    def _get_matrix(self, chunks: list[StoredChunk]) -> np.ndarray:
+        # Use the cached matrix ONLY when these are literally the cached full
+        # chunk list; any filtered/narrowed pool gets a freshly stacked matrix
+        # so embeddings stay aligned with the chunk order.
+        if self._cached_chunks is not None and chunks is self._cached_chunks:
             if self._cached_matrix is None:
                 self._cached_matrix = self._stack_embeddings(chunks)
             return self._cached_matrix

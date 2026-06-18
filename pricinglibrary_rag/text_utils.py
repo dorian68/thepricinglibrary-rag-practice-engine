@@ -17,32 +17,50 @@ STOPWORDS = {
     "after",
     "again",
     "against",
+    "all",
     "also",
+    "an",
     "and",
+    "any",
     "are",
+    "as",
+    "at",
+    "be",
     "because",
     "been",
     "before",
     "between",
     "both",
     "but",
+    "by",
     "can",
     "could",
     "does",
     "down",
     "during",
     "each",
+    "for",
     "from",
     "have",
+    "in",
     "into",
+    "is",
+    "it",
+    "its",
     "more",
     "most",
+    "no",
     "not",
+    "of",
+    "on",
     "only",
+    "or",
     "other",
+    "our",
     "over",
     "same",
     "should",
+    "so",
     "some",
     "such",
     "than",
@@ -55,15 +73,19 @@ STOPWORDS = {
     "they",
     "this",
     "through",
+    "to",
     "under",
+    "us",
     "very",
     "was",
+    "we",
     "were",
     "what",
     "when",
     "where",
     "which",
     "while",
+    "will",
     "with",
     "would",
     "you",
@@ -106,6 +128,91 @@ def normalize_text(text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r"[ ]{2,}", " ", text)
     return text.strip()
+
+
+# PDF ligatures that survive extraction (proﬁle -> profile, etc.).
+_LIGATURES = {
+    "ﬁ": "fi", "ﬂ": "fl", "ﬀ": "ff", "ﬃ": "ffi", "ﬄ": "ffl",
+    "ﬅ": "ft", "ﬆ": "st", "ﬀ": "ff",
+}
+
+
+def clean_ocr_text(text: str) -> str:
+    """Repair common PDF-extraction artefacts before display.
+
+    Fixes ligatures, hyphenated line breaks (``hedg-\\ning`` -> ``hedging``),
+    stray double punctuation (``sheet..`` -> ``sheet.``) and broken spacing.
+    Conservative: it never invents words, only repairs mechanical noise.
+    """
+    if not text:
+        return ""
+    for bad, good in _LIGATURES.items():
+        text = text.replace(bad, good)
+    # join words split across a line break by a hyphen
+    text = re.sub(r"(\w)-\s*\n\s*(\w)", r"\1\2", text)
+    text = text.replace("­", "")  # soft hyphen
+    text = re.sub(r"[\t\r\f\v]+", " ", text)
+    text = re.sub(r" {2,}", " ", text)
+    # collapse duplicated sentence punctuation: "sheet.." / "value ; ;"
+    text = re.sub(r"([.!?,;:])\1+", r"\1", text)
+    text = re.sub(r"\.\s*\.", ".", text)
+    text = re.sub(r"\s+([.,;:!?])", r"\1", text)
+    return text.strip()
+
+
+# A snippet is too noisy to show if it begins mid-word, is mostly digits/symbols,
+# or carries no real sentence.
+_MIDWORD_START_RE = re.compile(r"^[a-z]{1,3}[,.\s]")
+
+# Markers where prose degrades into figure/table/page-dump OCR noise.
+_NOISE_MARKERS = re.compile(r"\[Page\b|\bFigure\s*\d|\bTable\s*\d|\[page\b", re.IGNORECASE)
+# A run of >=4 very short tokens (table columns like "S Payoff K Call").
+_TABLE_RUN = re.compile(r"(?:\b\w{1,2}\b[ ]+){4,}")
+
+
+def _truncate_at_noise(text: str) -> str:
+    """Keep only the clean prose prefix before figure/table/page noise."""
+    cut = len(text)
+    m = _NOISE_MARKERS.search(text)
+    if m:
+        cut = min(cut, m.start())
+    m = _TABLE_RUN.search(text)
+    if m:
+        cut = min(cut, m.start())
+    return text[:cut].strip()
+
+
+def clean_snippet(text: str, max_chars: int = 320) -> str:
+    """Return a clean, sentence-bounded snippet, or "" when too noisy.
+
+    Returning "" is a deliberate signal to the caller: show the source
+    reference (title/chunk/score) WITHOUT a misleading garbled excerpt.
+    """
+    cleaned = clean_ocr_text(normalize_text(text or ""))
+    cleaned = _truncate_at_noise(cleaned)
+    if not cleaned:
+        return ""
+    sentences = split_sentences(cleaned)
+    # Drop a leading fragment that starts mid-sentence (lowercase / mid-word).
+    if sentences and (sentences[0][:1].islower() or _MIDWORD_START_RE.match(sentences[0])):
+        sentences = sentences[1:]
+    out = ""
+    for sentence in sentences:
+        s = sentence.strip()
+        if len(s) < 12:
+            continue
+        if len(out) + len(s) + 1 > max_chars:
+            break
+        out = f"{out} {s}".strip()
+    if not out:
+        return ""
+    # quality gates: must read like prose, not an OCR/table fragment
+    letters = sum(ch.isalpha() for ch in out)
+    if letters < 0.55 * len(out):
+        return ""
+    if len(out.split()) < 5:
+        return ""
+    return out
 
 
 def tokenize(text: str) -> list[str]:

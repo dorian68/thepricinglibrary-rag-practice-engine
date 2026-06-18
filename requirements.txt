@@ -4,6 +4,7 @@ pydantic>=2
 numpy>=1.24
 scikit-learn>=1.3
 openai>=2.0
+stripe>=9
 
 # Optional, recommended for PDF ingestion.
 PyMuPDF>=1.24

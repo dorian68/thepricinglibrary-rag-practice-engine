@@ -1,9 +1,21 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, StreamingResponse
+from pydantic import BaseModel
 
+from .agui import run_agui_stream
+from .billing import BillingError
 from .factory import Services, build_services
+
+
+class CheckoutBody(BaseModel):
+    plan: str
+    email: str | None = None
+    success_url: str | None = None
+    cancel_url: str | None = None
+from .practice_agent import PracticeAgent
 from .schemas import (
     CalculationRequest,
     CalculationResponse,
@@ -30,6 +42,14 @@ def create_app(services: Services | None = None) -> FastAPI:
             "practice-first courses and exercises."
         ),
     )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    agent = PracticeAgent(services.generator)
 
     @app.get("/health")
     def health() -> dict:
@@ -61,6 +81,25 @@ def create_app(services: Services | None = None) -> FastAPI:
             }
             for doc in services.store.list_documents(limit=limit, offset=offset)
         ]
+
+    @app.get("/sources/pedagogy-stats")
+    def pedagogy_stats() -> dict:
+        """Pedagogical coverage of the ingested corpus.
+
+        Lets a UI surface: usable chunks, average pedagogical score, content-type
+        distribution and overall usability — without scanning the corpus itself.
+        """
+        from .pedagogy import detect_pedagogical_gaps
+
+        stats = services.store.pedagogy_stats()
+        usable = services.store.iter_chunks(usable_only=True, limit=4000)
+        items = [
+            (c.metadata or {}).get("pedagogy")
+            for c in usable
+            if (c.metadata or {}).get("pedagogy")
+        ]
+        stats["gaps"] = detect_pedagogical_gaps(items)
+        return stats
 
     @app.post("/documents/ingest", response_model=list[IngestResult])
     def ingest(request: IngestRequest) -> list[IngestResult]:
@@ -167,6 +206,20 @@ def create_app(services: Services | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.post("/agent/exercise", response_model=GenerationResponse)
+    def agent_exercise(request: ExerciseRequest) -> GenerationResponse:
+        try:
+            return agent.create_exercise(request)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/agent/course", response_model=GenerationResponse)
+    def agent_course(request: CourseRequest) -> GenerationResponse:
+        try:
+            return agent.create_course(request)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.post("/generate/course", response_model=GenerationResponse)
     def generate_course(request: CourseRequest) -> GenerationResponse:
         try:
@@ -180,6 +233,51 @@ def create_app(services: Services | None = None) -> FastAPI:
             return services.generator.generate_material_pack(request)
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # --- AG-UI agentic assistant (SSE streaming) --------------------------
+    @app.post("/agent/ag-ui/run")
+    async def agent_ag_ui_run(request: Request) -> StreamingResponse:
+        payload = await request.json()
+
+        def _gen():
+            yield from run_agui_stream(services, payload)
+
+        return StreamingResponse(
+            _gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        )
+
+    # --- billing (Stripe) -------------------------------------------------
+    @app.get("/billing/config")
+    def billing_config() -> dict:
+        return services.billing.config_summary()
+
+    @app.post("/billing/checkout")
+    def billing_checkout(body: CheckoutBody) -> dict:
+        try:
+            session = services.billing.create_checkout_session(
+                body.plan,
+                email=body.email,
+                success_url=body.success_url,
+                cancel_url=body.cancel_url,
+            )
+        except BillingError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"id": session.id, "url": session.url, "plan": session.plan, "mode": session.mode}
+
+    @app.post("/billing/webhook")
+    async def billing_webhook(request: Request) -> dict:
+        payload = await request.body()
+        sig = request.headers.get("stripe-signature", "")
+        try:
+            return services.billing.handle_webhook(payload, sig)
+        except BillingError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/billing/entitlement")
+    def billing_entitlement(email: str) -> dict:
+        return services.billing.entitlement(email)
 
     return app
 

@@ -1,0 +1,189 @@
+{
+  "generated_at": "2026-06-05T20:19:46+00:00",
+  "llm": "openai:gpt-4o-mini",
+  "document_count": 123,
+  "courses": [
+    {
+      "slug": "vanilla-options-quote",
+      "title": "Module pratique - Vanilla options desk quote",
+      "topic": "Vanilla options desk quote",
+      "product": "equity vanilla option",
+      "concepts": [
+        "Black-Scholes",
+        "put-call parity",
+        "delta",
+        "vega"
+      ],
+      "level": "beginner",
+      "path": "/course-scripts/vanilla-options-quote.md",
+      "source_count": 10
+    },
+    {
+      "slug": "options-book-greeks-pnl",
+      "title": "Module pratique - Options book Greeks and P&L attribution",
+      "topic": "Options book Greeks and P&L attribution",
+      "product": "equity options book",
+      "concepts": [
+        "delta",
+        "gamma",
+        "vega",
+        "theta",
+        "hedging"
+      ],
+      "level": "intermediate",
+      "path": "/course-scripts/options-book-greeks-pnl.md",
+      "source_count": 10
+    },
+    {
+      "slug": "rates-swaps-dv01",
+      "title": "Module pratique - Interest-rate swaps, PV and DV01",
+      "topic": "Interest-rate swaps, PV and DV01",
+      "product": "EUR interest-rate swap",
+      "concepts": [
+        "par rate",
+        "annuity",
+        "DV01",
+        "curve shock"
+      ],
+      "level": "intermediate",
+      "path": "/course-scripts/rates-swaps-dv01.md",
+      "source_count": 10
+    },
+    {
+      "slug": "yield-curve-bootstrapping",
+      "title": "Module pratique - Yield curve bootstrapping for desk pricing",
+      "topic": "Yield curve bootstrapping for desk pricing",
+      "product": "interest-rate curve",
+      "concepts": [
+        "discount factors",
+        "zero curve",
+        "forward rates",
+        "interpolation"
+      ],
+      "level": "intermediate",
+      "path": "/course-scripts/yield-curve-bootstrapping.md",
+      "source_count": 10
+    },
+    {
+      "slug": "implied-volatility-smile",
+      "title": "Module pratique - Implied volatility smile and quote cleaning",
+      "topic": "Implied volatility smile and quote cleaning",
+      "product": "equity index options",
+      "concepts": [
+        "implied volatility",
+        "smile",
+        "skew",
+        "SVI"
+      ],
+      "level": "intermediate",
+      "path": "/course-scripts/implied-volatility-smile.md",
+      "source_count": 10
+    },
+    {
+      "slug": "monte-carlo-pricing",
+      "title": "Module pratique - Monte Carlo pricing and confidence intervals",
+      "topic": "Monte Carlo pricing and confidence intervals",
+      "product": "path-dependent option",
+      "concepts": [
+        "GBM",
+        "Asian option",
+        "standard error",
+        "variance reduction"
+      ],
+      "level": "advanced",
+      "path": "/course-scripts/monte-carlo-pricing.md",
+      "source_count": 10
+    },
+    {
+      "slug": "barrier-options-gap-risk",
+      "title": "Module pratique - Barrier options and gap risk",
+      "topic": "Barrier options and gap risk",
+      "product": "FX barrier option",
+      "concepts": [
+        "down-and-out",
+        "knock-out",
+        "gap risk",
+        "monitoring"
+      ],
+      "level": "advanced",
+      "path": "/course-scripts/barrier-options-gap-risk.md",
+      "source_count": 10
+    },
+    {
+      "slug": "structured-products-autocall",
+      "title": "Module pratique - Autocallable structured products from term sheet to scenario table",
+      "topic": "Autocallable structured products from term sheet to scenario table",
+      "product": "autocallable note",
+      "concepts": [
+        "coupon barrier",
+        "autocall",
+        "protection barrier",
+        "redemption"
+      ],
+      "level": "advanced",
+      "path": "/course-scripts/structured-products-autocall.md",
+      "source_count": 10
+    },
+    {
+      "slug": "credit-derivatives-cds",
+      "title": "Module pratique - CDS spread risk, carry and CS01",
+      "topic": "CDS spread risk, carry and CS01",
+      "product": "single-name CDS",
+      "concepts": [
+        "spread",
+        "risky annuity",
+        "CS01",
+        "carry"
+      ],
+      "level": "intermediate",
+      "path": "/course-scripts/credit-derivatives-cds.md",
+      "source_count": 10
+    },
+    {
+      "slug": "market-risk-var-stress",
+      "title": "Module pratique - Market risk VaR, stress testing and escalation",
+      "topic": "Market risk VaR, stress testing and escalation",
+      "product": "multi-asset portfolio",
+      "concepts": [
+        "parametric VaR",
+        "expected shortfall",
+        "stress test",
+        "risk limit"
+      ],
+      "level": "intermediate",
+      "path": "/course-scripts/market-risk-var-stress.md",
+      "source_count": 10
+    },
+    {
+      "slug": "fixed-income-bonds-duration",
+      "title": "Module pratique - Bond pricing, duration and rate-shock P&L",
+      "topic": "Bond pricing, duration and rate-shock P&L",
+      "product": "fixed-income bond",
+      "concepts": [
+        "clean price",
+        "YTM",
+        "duration",
+        "convexity",
+        "DV01"
+      ],
+      "level": "beginner",
+      "path": "/course-scripts/fixed-income-bonds-duration.md",
+      "source_count": 10
+    },
+    {
+      "slug": "stochastic-calculus-for-hedging",
+      "title": "Module pratique - Stochastic calculus only where it helps hedging",
+      "topic": "Stochastic calculus only where it helps hedging",
+      "product": "option pricing model",
+      "concepts": [
+        "Ito lemma",
+        "SDE",
+        "risk-neutral measure",
+        "hedging"
+      ],
+      "level": "expert",
+      "path": "/course-scripts/stochastic-calculus-for-hedging.md",
+      "source_count": 10
+    }
+  ]
+}

@@ -10,4 +10,9 @@ local_data/
 *.sqlite
 *.sqlite3
 *.log
+.pytest_tmp/
+*-server.log
+server*.log
+server*.err.log
+backend*.log
 

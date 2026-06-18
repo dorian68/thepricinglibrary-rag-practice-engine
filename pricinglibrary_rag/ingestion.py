@@ -5,6 +5,7 @@ from pathlib import Path
 from .config import Settings
 from .document_loader import DocumentLoadError, load_document
 from .embeddings import EmbeddingBackend
+from .pedagogy import classify_chunk, infer_document_theme
 from .schemas import DocumentMetadata, IngestResult
 from .storage import LocalStore, StoredChunk
 from .text_utils import chunk_text, keyword_scores, stable_id
@@ -36,6 +37,15 @@ class IngestionService:
                 status="failed",
                 message=str(exc),
             )
+
+        # Enrich generic document metadata with an inferred theme/subtheme so
+        # sources can be targeted by track, not just by free-text search.
+        theme = infer_document_theme(loaded.content, loaded.metadata.title)
+        loaded.metadata.extra.setdefault("theme", theme["theme"])
+        loaded.metadata.extra.setdefault("subtheme", theme["subtheme"])
+        loaded.metadata.extra.setdefault("theme_confidence", theme["theme_confidence"])
+        if not loaded.metadata.asset_class or loaded.metadata.asset_class == "multi_asset":
+            loaded.metadata.asset_class = theme["asset_class"]
 
         document_id = stable_id(str(loaded.path), loaded.file_sha256, size=24)
         document_id, should_insert = self.store.upsert_document(
@@ -70,7 +80,10 @@ class IngestionService:
         top_terms = [term for term, _ in keyword_scores([loaded.content], top_k=20)]
         stored_chunks: list[StoredChunk] = []
         for idx, chunk in enumerate(text_chunks):
-            chunk_terms = [term for term, _ in keyword_scores([chunk.content], top_k=12)]
+            pedagogy = classify_chunk(chunk.content, section_title=chunk.section_title)
+            chunk_terms = pedagogy.keywords or [
+                term for term, _ in keyword_scores([chunk.content], top_k=12)
+            ]
             chunk_id = stable_id(document_id, str(idx), chunk.content[:100], size=24)
             stored_chunks.append(
                 StoredChunk(
@@ -88,7 +101,12 @@ class IngestionService:
                         "document_keywords": top_terms,
                         "embedding_backend": self.embeddings.name,
                         "embedding_dim": self.embeddings.dim,
+                        "pedagogy": pedagogy.to_metadata(),
                     },
+                    content_type=pedagogy.content_type,
+                    pedagogical_value=pedagogy.pedagogical_value,
+                    quality_score=pedagogy.quality_score,
+                    usable_for_course=pedagogy.usable_for_course,
                 )
             )
         inserted = self.store.insert_chunks(stored_chunks)
