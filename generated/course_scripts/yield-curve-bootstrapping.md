@@ -128,76 +128,114 @@ Un piège courant pour un junior est de privilégier une interpolation qui sembl
 - Corrige detaille.
 - Quiz de verification rapide.
 
+## Fondements theoriques (ancres sources)
+_[genere - theorie, formules verifiees par un professionnel]_
+
+**Definition.** La courbe se resume en discount factors $DF(0,t)$. Le taux zero-coupon depend de la convention de composition, et le forward simplement compose $f_{t,T}$ s'annualise sur la periode $(T-t)$:
+$$DF(0,t) = (1+z_t^{ann})^{-t} = e^{-z_t^{cont}\,t},\quad z_t^{cont}=\ln(1+z_t^{ann}),\qquad f_{t,T} = \frac{1}{T-t}\!\left(\frac{DF(0,t)}{DF(0,T)} - 1\right).$$
+
+**Bootstrap sequentiel (swaps par annuels).** Pour le noeud $n$, en isolant $DF_n$ dans l'equation du par swap $s_n\sum_{i\le n}\tau_i DF_i = 1-DF_n$:
+$$\boxed{\,DF_n = \frac{1 - s_n\sum_{i=1}^{n-1}\tau_i DF_i}{1 + s_n\tau_n}\,}$$
+On resout de proche en proche: $DF_1$, puis $DF_2$, etc.
+
+**Intuition rigoureuse.** Une obligation a coupon = portefeuille de zero-coupons; le bootstrap "depouille" un instrument a la fois pour extraire le DF marginal de chaque maturite. Les forwards implicites doivent rester positifs et lisses — sinon l'interpolation ou les inputs sont incoherents.
+
+**Piege theorique.** Le resultat depend de l'interpolation (lineaire en taux, en log-DF, splines...) et du jeu d'instruments. En multi-courbe, **la courbe de projection des forwards differe de la courbe d'actualisation (OIS)**.
+
+**References (corpus).** *Interest Rate Derivatives Explained Vol. 1* (bootstrap des swaps par); *Innovations in Derivatives Markets* (courbe forward vs discount, OIS); *Fixed Income Markets* (obligation a coupon = panier de zero-coupons).
+
 ## Exemple numerique resolu
-_[genere - calcul verifie]_ On valorise un payer swap et on mesure sa sensibilite a la courbe.
+_[genere - calcul verifie]_ On bootstrappe les discount factors et les taux forward d'une courbe de swaps.
 
-**Donnees.** Payer swap EUR notionnel 100m fixed coupon 3.20% par swap rate 3.00% annuity 4.55, la courbe monte de 10bp.
+**Donnees.** Bootstrap de courbe, swaps par annuels: 1 an 3.00%, 2 ans 3.20%, 3 ans 3.35%.
 
-### PV/DV01 de swap de taux
-- Famille: rates_swap_dv01
+### Bootstrap de courbe et taux forward
+- Famille: yield_curve_bootstrap
 - Hypotheses controlees:
-  - Approximation mono-courbe et parallel shift.
-  - Annuite fournie par le prompt, pas recalibree.
-  - Signe exprime du point de vue payer fixe / receiver flottant.
+  - Swaps par annuels, frequence fixe annuelle, day-count simplifie.
+  - Mono-courbe (pas de spread OIS/IBOR), interpolation implicite par noeud.
 - Calculs a respecter:
-  - DV01:
-    - Formule: Annuite * Notionnel * 1bp
-    - Application: 4.55 * 100,000,000 * 0.0001
-    - Resultat: 45,500 EUR/bp
-    - Lecture desk: Sensibilite lineaire de la position a un bp de courbe.
-  - PV payer approx:
-    - Formule: (Par rate - Fixed coupon) * Annuite * Notionnel
-    - Application: (3% - 3.2%) * 4.55 * 100,000,000
-    - Resultat: -910,000 EUR
-    - Lecture desk: Un payer au-dessus du par rate est initialement hors-la-monnaie.
-  - P&L shock taux:
-    - Formule: DV01 * shock bp pour un payer
-    - Application: 45,500 * 10
-    - Resultat: 455,000 EUR
-    - Lecture desk: Un payer gagne quand les taux montent, perd quand ils baissent.
+  - DF 1a (par 3.00%):
+    - Formule: DF_n = (1 - s_n*sum(DF_<n)) / (1 + s_n)
+    - Application: (1 - 0.0300*0.0000) / (1 + 0.0300)
+    - Resultat: DF=0.9709; zero 1a=3.0000%
+    - Lecture desk: Discount factor bootstrappe puis taux zero-coupon annualise.
+  - DF 2a (par 3.20%):
+    - Formule: DF_n = (1 - s_n*sum(DF_<n)) / (1 + s_n)
+    - Application: (1 - 0.0320*0.9709) / (1 + 0.0320)
+    - Resultat: DF=0.9389; zero 2a=3.2032%
+    - Lecture desk: Discount factor bootstrappe puis taux zero-coupon annualise.
+  - DF 3a (par 3.35%):
+    - Formule: DF_n = (1 - s_n*sum(DF_<n)) / (1 + s_n)
+    - Application: (1 - 0.0335*1.9098) / (1 + 0.0335)
+    - Resultat: DF=0.9057; zero 3a=3.3573%
+    - Lecture desk: Discount factor bootstrappe puis taux zero-coupon annualise.
+  - Forward 1a->2a:
+    - Formule: f = DF_{n-1}/DF_n - 1
+    - Application: 0.9709/0.9389 - 1
+    - Resultat: 3.4068%
+    - Lecture desk: Taux forward 1 an implicite entre deux noeuds.
+  - Forward 2a->3a:
+    - Formule: f = DF_{n-1}/DF_n - 1
+    - Application: 0.9389/0.9057 - 1
+    - Resultat: 3.6663%
+    - Lecture desk: Taux forward 1 an implicite entre deux noeuds.
 - Actions operationnelles attendues:
-  - Comparer le signe de PV avec le sens payer/receiver.
-  - Hedger DV01 avec swap oppose, futures taux ou bond hedge selon le book.
-  - Expliquer le basis risk si la couverture n'est pas sur le meme tenor.
+  - Verifier la monotonie/cohrence des DF (decroissants) et des forwards.
+  - Utiliser les DF pour actualiser tout cash-flow date sur la courbe.
+  - Reprendre en multi-courbe (OIS discounting) pour un usage production.
+- Points de vigilance:
+  - Le bootstrap est sensible aux instruments choisis et a l'interpolation entre noeuds.
 
 **Lecture finale.** Chaque chiffre ci-dessus a une unite explicite et un sens economique; un apprenant doit pouvoir refaire le calcul a la main et retrouver le meme ordre de grandeur.
 
 ## Exercices corriges
 ### Exercice 1 - application directe
-_[genere]_ Un payer swap a un fixed coupon au-dessus du par rate. Sa PV initiale est-elle positive ou negative pour le payer?
+_[genere]_ Identifiez le produit, son risque dominant et la donnee de marche qui le pilote le plus.
 
-**Correction.** Negative: payer un coupon superieur au marche est desavantageux, donc PV(payer) = (par - fixed) * annuite * notionnel < 0.
+**Correction.** Reponse type: nommer le payoff, la sensibilite de premier ordre (delta/DV01/CS01...) et la variable marche associee (spot/taux/spread).
 
 ### Exercice 2 - niveau desk
-_[genere]_ Payer swap EUR 100m, fixed 3.20%, par 3.00%, annuite 4.55. Courbe +10bp. Calculez PV, DV01 et P&L.
+_[genere]_ Construisez un mini-cas chiffre du sujet et resolvez-le pas a pas avec unites et interpretation.
 
 **Correction detaillee (calcul verifie).**
-### PV/DV01 de swap de taux
-- Famille: rates_swap_dv01
+### Bootstrap de courbe et taux forward
+- Famille: yield_curve_bootstrap
 - Hypotheses controlees:
-  - Approximation mono-courbe et parallel shift.
-  - Annuite fournie par le prompt, pas recalibree.
-  - Signe exprime du point de vue payer fixe / receiver flottant.
+  - Swaps par annuels, frequence fixe annuelle, day-count simplifie.
+  - Mono-courbe (pas de spread OIS/IBOR), interpolation implicite par noeud.
 - Calculs a respecter:
-  - DV01:
-    - Formule: Annuite * Notionnel * 1bp
-    - Application: 4.55 * 100,000,000 * 0.0001
-    - Resultat: 45,500 EUR/bp
-    - Lecture desk: Sensibilite lineaire de la position a un bp de courbe.
-  - PV payer approx:
-    - Formule: (Par rate - Fixed coupon) * Annuite * Notionnel
-    - Application: (3% - 3.2%) * 4.55 * 100,000,000
-    - Resultat: -910,000 EUR
-    - Lecture desk: Un payer au-dessus du par rate est initialement hors-la-monnaie.
-  - P&L shock taux:
-    - Formule: DV01 * shock bp pour un payer
-    - Application: 45,500 * 10
-    - Resultat: 455,000 EUR
-    - Lecture desk: Un payer gagne quand les taux montent, perd quand ils baissent.
+  - DF 1a (par 3.00%):
+    - Formule: DF_n = (1 - s_n*sum(DF_<n)) / (1 + s_n)
+    - Application: (1 - 0.0300*0.0000) / (1 + 0.0300)
+    - Resultat: DF=0.9709; zero 1a=3.0000%
+    - Lecture desk: Discount factor bootstrappe puis taux zero-coupon annualise.
+  - DF 2a (par 3.20%):
+    - Formule: DF_n = (1 - s_n*sum(DF_<n)) / (1 + s_n)
+    - Application: (1 - 0.0320*0.9709) / (1 + 0.0320)
+    - Resultat: DF=0.9389; zero 2a=3.2032%
+    - Lecture desk: Discount factor bootstrappe puis taux zero-coupon annualise.
+  - DF 3a (par 3.35%):
+    - Formule: DF_n = (1 - s_n*sum(DF_<n)) / (1 + s_n)
+    - Application: (1 - 0.0335*1.9098) / (1 + 0.0335)
+    - Resultat: DF=0.9057; zero 3a=3.3573%
+    - Lecture desk: Discount factor bootstrappe puis taux zero-coupon annualise.
+  - Forward 1a->2a:
+    - Formule: f = DF_{n-1}/DF_n - 1
+    - Application: 0.9709/0.9389 - 1
+    - Resultat: 3.4068%
+    - Lecture desk: Taux forward 1 an implicite entre deux noeuds.
+  - Forward 2a->3a:
+    - Formule: f = DF_{n-1}/DF_n - 1
+    - Application: 0.9389/0.9057 - 1
+    - Resultat: 3.6663%
+    - Lecture desk: Taux forward 1 an implicite entre deux noeuds.
 - Actions operationnelles attendues:
-  - Comparer le signe de PV avec le sens payer/receiver.
-  - Hedger DV01 avec swap oppose, futures taux ou bond hedge selon le book.
-  - Expliquer le basis risk si la couverture n'est pas sur le meme tenor.
+  - Verifier la monotonie/cohrence des DF (decroissants) et des forwards.
+  - Utiliser les DF pour actualiser tout cash-flow date sur la courbe.
+  - Reprendre en multi-courbe (OIS discounting) pour un usage production.
+- Points de vigilance:
+  - Le bootstrap est sensible aux instruments choisis et a l'interpolation entre noeuds.
 
 ## Mini-quiz
 _[genere]_ Mini-quiz de verification (5 questions).

@@ -1,0 +1,24 @@
+{
+  "strategy": "trend_following",
+  "headline": "GOLD",
+  "n_true_trials": 195,
+  "trial_sharpe_variance": 0.0004975931871750531,
+  "head_dsr_true": 0.0050768820848167695,
+  "head_pbo": 0.7,
+  "cv_sharpe": 0.0031436967675881923,
+  "lockbox_sharpe": 0.11687460658969633,
+  "retain": 37.17744274660471,
+  "retain_meaningful": false,
+  "gates": {
+    "DSR_true>0.95": false,
+    "PBO<0.5": false,
+    "lockbox_retain>=70%": false
+  },
+  "deployable": false,
+  "breadth": {
+    "n_instruments": 10,
+    "pct_positive_median_sharpe": 90.0,
+    "bh_discoveries": 0,
+    "bonferroni_discoveries": 0
+  }
+}

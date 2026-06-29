@@ -1093,11 +1093,18 @@ def _run_offline_agent(services: Services, payload: dict, ctx: dict) -> Iterator
         param = "time" if any(k in text for k in ("maturit", "échéance", "echeance", "temps")) else (
             "vol" if "vol" in text else ("strike" if "strike" in text else "spot"))
         yield from _tool_call_sequence(services, "greeks_sensitivity", {"greek": greek, "param": param})
+        param_fr = {"time": "la maturité", "vol": "la volatilité", "strike": "le strike"}.get(param, "le spot")
+        greek_note = {
+            "delta": "le delta d'un call varie de 0 à 1 avec le spot : c'est ton ratio de couverture en actions.",
+            "gamma": "le gamma culmine à la monnaie et explose près de l'échéance : c'est l'instabilité de ton delta.",
+            "vega": "le vega culmine à la monnaie et croît avec la maturité : c'est ton exposition à la vol implicite.",
+            "theta": "le theta est négatif pour une option longue : c'est le coût du temps qui passe, payé chaque jour.",
+            "rho": "le rho mesure la sensibilité au taux : faible en général, sauf sur longue maturité.",
+        }.get(greek, "")
         yield from _emit_text(
-            f"Voici l'évolution du **{greek}** en fonction de "
-            f"{'la maturité' if param=='time' else ('la volatilité' if param=='vol' else ('le strike' if param=='strike' else 'le spot'))}. "
-            "Observe la courbe ci-dessus : le vega d'une option à la monnaie **augmente** avec la maturité "
-            "(plus de temps = plus d'incertitude valorisée), puis l'effet se tasse. Demande-moi un autre Greek."
+            f"Voici l'évolution du **{greek}** en fonction de {param_fr}. "
+            f"Lis la courbe ci-dessus : {greek_note} Le pic et le signe te disent où la sensibilité est la plus "
+            "forte et dans quel sens couvrir. Demande-moi un autre Greek ou un autre paramètre."
         )
         return
 
@@ -1126,20 +1133,55 @@ def _run_offline_agent(services: Services, payload: dict, ctx: dict) -> Iterator
         )
         return
 
-    # Intent: option strategy payoff.
+    # Intent: option strategy payoff. Parse WHICH strategy was asked (not always a
+    # bull call spread) so "long straddle" no longer renders a mislabeled spread.
     if "payoff" in text or "spread" in text or "straddle" in text or "strangle" in text or "butterfly" in text:
         if tool_id != "payoff":
             yield from _tool_call_sequence(services, "navigate", {"path": "/tools/payoff"})
-        legs = [
-            {"type": "call", "side": "long", "K": 100, "qty": 1, "prem": 4},
-            {"type": "call", "side": "short", "K": 120, "qty": 1, "prem": 1.2},
-        ]
+        if "straddle" in text:
+            name = "Long straddle"
+            legs = [
+                {"type": "call", "side": "long", "K": 100, "qty": 1, "prem": 4},
+                {"type": "put", "side": "long", "K": 100, "qty": 1, "prem": 3.8},
+            ]
+            desc = ("Un **long straddle** (long call ET long put au même strike $K=100$) : tu paies les deux primes "
+                    "et tu gagnes si le sous-jacent bouge fort, dans n'importe quel sens. C'est un pari long volatilité.")
+        elif "strangle" in text:
+            name = "Long strangle"
+            legs = [
+                {"type": "put", "side": "long", "K": 90, "qty": 1, "prem": 2.1},
+                {"type": "call", "side": "long", "K": 110, "qty": 1, "prem": 2.3},
+            ]
+            desc = ("Un **long strangle** (long put $K=90$, long call $K=110$) : moins cher que le straddle, mais il "
+                    "faut un mouvement plus ample pour être rentable. Long volatilité, zone morte plus large.")
+        elif "butterfly" in text or "papillon" in text:
+            name = "Long call butterfly"
+            legs = [
+                {"type": "call", "side": "long", "K": 90, "qty": 1, "prem": 12},
+                {"type": "call", "side": "short", "K": 100, "qty": 2, "prem": 5},
+                {"type": "call", "side": "long", "K": 110, "qty": 1, "prem": 1.6},
+            ]
+            desc = ("Un **long butterfly** (long 90, short 2× 100, long 110) : gain maximal si le sous-jacent finit "
+                    "pile à 100, perte limitée à la prime nette. C'est un pari court volatilité, sur un point précis.")
+        elif "bear" in text:
+            name = "Bear put spread"
+            legs = [
+                {"type": "put", "side": "long", "K": 100, "qty": 1, "prem": 4},
+                {"type": "put", "side": "short", "K": 80, "qty": 1, "prem": 1.2},
+            ]
+            desc = ("Un **bear put spread** (long put $K=100$, short put $K=80$) : tu gagnes à la baisse, gain plafonné, "
+                    "coût net réduit par la prime encaissée.")
+        else:
+            name = "Bull call spread"
+            legs = [
+                {"type": "call", "side": "long", "K": 100, "qty": 1, "prem": 4},
+                {"type": "call", "side": "short", "K": 120, "qty": 1, "prem": 1.2},
+            ]
+            desc = ("Un **bull call spread** (long call $K=100$, short call $K=120$) : gain plafonné, coût net réduit "
+                    "par la prime encaissée. Payoff $\\max(S-100,0)-\\max(S-120,0)$ moins la prime nette.")
         yield from _tool_call_sequence(services, "set_tool_params", {"tool": "payoff", "params": {"legs": legs}})
-        yield from _tool_call_sequence(services, "generate_payoff_scenario", {"name": "Bull call spread", "legs": legs})
-        yield from _emit_text(
-            "Voici un **bull call spread** (long call $K=100$, short call $K=120$) : gain plafonné, "
-            "coût net réduit par la prime encaissée. Payoff $\\max(S-100,0) - \\max(S-120,0)$ moins la prime nette."
-        )
+        yield from _tool_call_sequence(services, "generate_payoff_scenario", {"name": name, "legs": legs})
+        yield from _emit_text("Voici un " + desc + " Dis-moi les strikes ou une autre stratégie et je régénère.")
         return
 
     # Intent: grade the user's answer.

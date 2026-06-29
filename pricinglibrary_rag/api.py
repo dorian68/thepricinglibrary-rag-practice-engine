@@ -7,7 +7,9 @@ from pydantic import BaseModel
 
 from .agui import run_agui_stream
 from .billing import BillingError
+from .desk import DeskOrchestrator
 from .factory import Services, build_services
+from .platform_store import PlatformStore
 
 
 class CheckoutBody(BaseModel):
@@ -15,6 +17,81 @@ class CheckoutBody(BaseModel):
     email: str | None = None
     success_url: str | None = None
     cancel_url: str | None = None
+
+
+# --- platform (community/jobs/blog/progress...) request bodies -------------
+class ThreadBody(BaseModel):
+    channel: str = "forum"
+    title: str
+    body: str
+    author: str = "anon"
+    author_id: str | None = None
+    tags: list[str] | None = None
+
+
+class CommentBody(BaseModel):
+    body: str
+    author: str = "anon"
+    author_id: str | None = None
+
+
+class JobBody(BaseModel):
+    title: str
+    company: str
+    location: str | None = None
+    kind: str | None = None
+    tags: list[str] | None = None
+    description: str | None = None
+    posted_by: str | None = None
+
+
+class ApplyBody(BaseModel):
+    applicant: str
+    note: str | None = None
+
+
+class BugBody(BaseModel):
+    summary: str
+    kind: str | None = None
+    severity: str | None = None
+    detail: str | None = None
+    reporter: str | None = None
+
+
+class NewsletterBody(BaseModel):
+    email: str
+    source: str | None = None
+
+
+class ProgressBody(BaseModel):
+    user_id: str
+    username: str | None = None
+    kind: str
+    ref: str | None = None
+    score: float | None = None
+    meta: dict | None = None
+
+
+class SurvivalBody(BaseModel):
+    username: str
+    user_id: str | None = None
+    wave: str | None = None
+    score: int
+    streak: int = 0
+
+
+class BlogBody(BaseModel):
+    slug: str
+    title: str
+    author: str | None = None
+    excerpt: str | None = None
+    body: str | None = None
+    tags: list[str] | None = None
+    read_minutes: int | None = None
+
+
+class DeskBody(BaseModel):
+    query: str
 from .practice_agent import PracticeAgent
 from .schemas import (
     CalculationRequest,
@@ -278,6 +355,257 @@ def create_app(services: Services | None = None) -> FastAPI:
     @app.get("/billing/entitlement")
     def billing_entitlement(email: str) -> dict:
         return services.billing.entitlement(email)
+
+    # ===================== AGENTIC DESK (multi-agent trading room) ========
+    desk = DeskOrchestrator(services.llm)
+
+    @app.post("/agent/desk/run")
+    def desk_run(body: DeskBody) -> dict:
+        return desk.run(body.query)
+
+    # --- stateful FIC trading room (live market + live books) -------------
+    from .desk_state import get_room
+
+    @app.get("/agent/desk/state")
+    def desk_state() -> dict:
+        room = get_room()
+        room.auto_tick()  # time passes with the wall clock
+        return room.snapshot()
+
+    @app.post("/agent/desk/tick")
+    def desk_tick(seconds: float = 1.0) -> dict:
+        room = get_room()
+        room.tick(seconds)
+        return room.snapshot()
+
+    @app.post("/agent/desk/trade")
+    def desk_trade(body: DeskBody) -> dict:
+        room = get_room()
+        room.auto_tick()
+        result = desk.run(body.query)
+        kind = result["product_spec"]["kind"]
+        factor = result["parsed"]["factor"]
+        if kind == "swap":
+            room.add_swap("EUR", 50_000_000, +1, result["product_spec"]["maturity_years"] or 5.0,
+                          label=f"RFQ {result['parsed']['underlying']} payer")
+        elif kind == "cds":
+            room.add_cds(50_000_000, +1, label="RFQ IG protection")
+        elif factor in ("fx",):
+            room.add_fx_forward(25_000_000, +1, label="RFQ EURUSD fwd")
+        elif factor == "crypto":
+            pr = result["pricing_result"] or {}
+            asset = pr.get("strike") and result["product_spec"].get("asset") or "BTC"
+            room.add_option(asset, 10, +1, pr.get("strike") or room.market.spots.get(asset, 61250.0),
+                            result["product_spec"]["maturity_years"] or 0.25, label=f"RFQ {asset} option")
+        else:
+            room.add_option("WTI" if factor == "oil" else "SPX", 1000, +1, 80.0,
+                            result["product_spec"]["maturity_years"] or 0.4, label="RFQ option")
+        room.revalue()
+        return {"result": result, "snapshot": room.snapshot()}
+
+    # ===================== MARKET DATA (shared multi-asset history) =======
+    from . import marketdata as md
+    from .integrations import status as integ_status
+
+    @app.get("/market/providers")
+    def market_providers() -> dict:
+        return {"providers": md.provider_status(), "integrations": integ_status(),
+                "data_dir": str(md.cache.data_dir())}
+
+    @app.get("/market/catalog")
+    def market_catalog() -> dict:
+        return {"asset_classes": md.by_asset_class(), "inventory": md.cache.inventory()}
+
+    @app.get("/market/history/{symbol}")
+    def market_history(symbol: str, points: int = 260, provider: str | None = None) -> dict:
+        try:
+            df = md.get_history(symbol, provider=provider)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=404, detail=f"{symbol}: {exc}") from exc
+        tail = df.tail(max(2, points))
+        return {"symbol": symbol, "rows": int(len(df)),
+                "series": [{"date": str(idx.date()), "close": round(float(r['close']), 4),
+                            "open": round(float(r['open']), 4), "high": round(float(r['high']), 4),
+                            "low": round(float(r['low']), 4), "volume": float(r['volume'])}
+                           for idx, r in tail.iterrows()]}
+
+    @app.post("/market/aspirate")
+    def market_aspirate(refresh: bool = False) -> dict:
+        return md.aspirate(refresh=refresh)
+
+    @app.get("/market/universe")
+    def market_universe() -> dict:
+        """Full cached price universe grouped by namespace (asset family) — the
+        ~11k assets / ~63M rows aspirated since 1962. Foundation for the Strategy
+        Lab to backtest the whole universe, not just the 6 native instruments."""
+        inv = md.cache.inventory()
+        groups: dict = {}
+        for it in inv:
+            g = groups.setdefault(it["provider"], {"symbols": 0, "rows": 0})
+            g["symbols"] += 1
+            g["rows"] += it["rows"]
+        return {"total_symbols": len(inv), "total_rows": sum(i["rows"] for i in inv),
+                "by_namespace": dict(sorted(groups.items(), key=lambda kv: -kv[1]["rows"]))}
+
+    @app.get("/market/intraday/{symbol}")
+    def market_intraday(symbol: str, interval: str = "15m", points: int = 300) -> dict:
+        if interval not in ("1m", "5m", "15m", "30m", "1h"):
+            raise HTTPException(status_code=400, detail="interval must be 1m/5m/15m/30m/1h")
+        try:
+            df = md.get_intraday(symbol, interval=interval)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=404, detail=f"{symbol} {interval}: {exc}") from exc
+        tail = df.tail(max(2, points))
+        return {"symbol": symbol, "interval": interval, "rows": int(len(df)),
+                "series": [{"t": str(idx), "close": round(float(r['close']), 6),
+                            "open": round(float(r['open']), 6), "high": round(float(r['high']), 6),
+                            "low": round(float(r['low']), 6), "volume": float(r['volume'])}
+                           for idx, r in tail.iterrows()]}
+
+    @app.get("/agent/crypto/vol")
+    def crypto_vol(asset: str = "BTC") -> dict:
+        from . import volsurface_bridge as vb
+        return {"asset": asset.upper(), "engine": vb.engine_name(),
+                "realized": vb.realized_vol(asset), "live": vb.live_atm_vol(asset)}
+
+    # ===================== STRATEGY LAB (algo trading engine) =============
+    from . import strategylab as lab
+
+    @app.get("/strategy/instruments")
+    def strategy_instruments() -> dict:
+        return {**lab.list_instruments(), "strategies": lab.strategies().get("strategies", [])}
+
+    @app.post("/strategy/backtest")
+    def strategy_backtest(instrument: str = "EURUSD", max_bars: int = 40000,
+                          capital: float | None = None) -> dict:
+        return lab.backtest(instrument, max_bars=max_bars, capital=capital)
+
+    @app.post("/strategy/scan")
+    def strategy_scan(max_bars: int = 30000) -> dict:
+        return lab.scan(max_bars=max_bars)
+
+    @app.post("/strategy/walkforward")
+    def strategy_walkforward(instrument: str = "EURUSD", strategy_name: str = "trend_following",
+                             max_bars: int = 30000) -> dict:
+        return lab.walkforward(instrument, strategy_name=strategy_name, max_bars=max_bars)
+
+    # ===================== PLATFORM (community/jobs/blog/...) =============
+    platform = PlatformStore(services.settings.db_path)
+
+    @app.get("/platform/health")
+    def platform_health() -> dict:
+        return {"status": "ok", "counts": platform.counts()}
+
+    # community
+    @app.get("/platform/community/threads")
+    def community_threads(channel: str | None = None, limit: int = 50) -> dict:
+        return {"threads": platform.list_threads(channel, limit)}
+
+    @app.post("/platform/community/threads")
+    def community_create_thread(body: ThreadBody) -> dict:
+        return platform.create_thread(channel=body.channel, title=body.title, body=body.body,
+                                      author=body.author, author_id=body.author_id, tags=body.tags)
+
+    @app.post("/platform/community/threads/{thread_id}/vote")
+    def community_vote(thread_id: str, delta: int = 1) -> dict:
+        out = platform.vote_thread(thread_id, delta)
+        if out is None:
+            raise HTTPException(status_code=404, detail="thread not found")
+        return out
+
+    @app.get("/platform/community/threads/{thread_id}/comments")
+    def community_comments(thread_id: str) -> dict:
+        return {"comments": platform.list_comments(thread_id)}
+
+    @app.post("/platform/community/threads/{thread_id}/comments")
+    def community_add_comment(thread_id: str, body: CommentBody) -> dict:
+        out = platform.add_comment(thread_id=thread_id, body=body.body, author=body.author, author_id=body.author_id)
+        if out is None:
+            raise HTTPException(status_code=404, detail="thread not found")
+        return out
+
+    # jobs
+    @app.get("/platform/jobs")
+    def jobs_list(kind: str | None = None, limit: int = 100) -> dict:
+        return {"jobs": platform.list_jobs(kind, limit)}
+
+    @app.post("/platform/jobs")
+    def jobs_create(body: JobBody) -> dict:
+        return platform.create_job(title=body.title, company=body.company, location=body.location,
+                                   kind=body.kind, tags=body.tags, description=body.description, posted_by=body.posted_by)
+
+    @app.post("/platform/jobs/{job_id}/apply")
+    def jobs_apply(job_id: str, body: ApplyBody) -> dict:
+        out = platform.apply_job(job_id=job_id, applicant=body.applicant, note=body.note)
+        if out is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        return out
+
+    @app.get("/platform/jobs/sources")
+    def jobs_sources() -> dict:
+        from . import jobs_sourcing as js
+        return {"providers": js.provider_status(), "counts": platform.jobs_source_counts()}
+
+    @app.post("/platform/jobs/source")
+    def jobs_source(limit_per: int = 60, query: str = "finance") -> dict:
+        from . import jobs_sourcing as js
+        return js.source_jobs(platform, limit_per=limit_per, query=query)
+
+    # bug reports
+    @app.post("/platform/bug-reports")
+    def bug_create(body: BugBody) -> dict:
+        return platform.create_bug(kind=body.kind, severity=body.severity, summary=body.summary,
+                                   detail=body.detail, reporter=body.reporter)
+
+    @app.get("/platform/bug-reports")
+    def bug_list(limit: int = 100) -> dict:
+        return {"bug_reports": platform.list_bugs(limit)}
+
+    # newsletter
+    @app.post("/platform/newsletter")
+    def newsletter_subscribe(body: NewsletterBody) -> dict:
+        return platform.subscribe(body.email, body.source)
+
+    # progress + leaderboard
+    @app.post("/platform/progress")
+    def progress_record(body: ProgressBody) -> dict:
+        return platform.record_progress(user_id=body.user_id, username=body.username, kind=body.kind,
+                                        ref=body.ref, score=body.score, meta=body.meta)
+
+    @app.get("/platform/progress/{user_id}")
+    def progress_get(user_id: str) -> dict:
+        return platform.progress_summary(user_id)
+
+    @app.get("/platform/leaderboard")
+    def leaderboard(limit: int = 20) -> dict:
+        return {"leaderboard": platform.leaderboard(limit)}
+
+    # survival
+    @app.post("/platform/survival")
+    def survival_record(body: SurvivalBody) -> dict:
+        return platform.record_survival(user_id=body.user_id, username=body.username, wave=body.wave,
+                                        score=body.score, streak=body.streak)
+
+    @app.get("/platform/survival/leaderboard")
+    def survival_leaderboard(limit: int = 20) -> dict:
+        return {"leaderboard": platform.survival_leaderboard(limit)}
+
+    # blog
+    @app.get("/platform/blog")
+    def blog_list(limit: int = 50) -> dict:
+        return {"posts": platform.list_blog(limit)}
+
+    @app.get("/platform/blog/{slug}")
+    def blog_get(slug: str) -> dict:
+        out = platform.get_blog(slug)
+        if out is None:
+            raise HTTPException(status_code=404, detail="post not found")
+        return out
+
+    @app.post("/platform/blog")
+    def blog_upsert(body: BlogBody) -> dict:
+        return platform.upsert_blog(slug=body.slug, title=body.title, author=body.author, excerpt=body.excerpt,
+                                    body=body.body, tags=body.tags, read_minutes=body.read_minutes)
 
     return app
 

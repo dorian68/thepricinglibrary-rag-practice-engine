@@ -125,34 +125,65 @@ Un piège courant pour un junior dans ce contexte est de sous-estimer l'importan
 - Corrige detaille.
 - Quiz de verification rapide.
 
+## Fondements theoriques (ancres sources)
+_[genere - theorie, formules verifiees par un professionnel]_
+
+**Structure.** Deux jambes: l'acheteur de protection paie un spread $s$ (jambe de prime) et recoit $(1-R)\times$ nominal en cas de defaut (jambe de protection), $R$ = taux de recouvrement.
+
+**Spread par (egalite des PV des deux jambes).**
+$$s = \frac{(1-R)\sum_i DF_i\,(Q_{i-1}-Q_i)}{\sum_i DF_i\,\tau_i\,Q_i},$$
+ou $Q_i=\mathbb{Q}(\tau>t_i)=e^{-\int_0^{t_i}\lambda}$ est la probabilite de survie et $DF_i$ l'actualisation.
+
+**Triangle du credit (approximation).** $\;s \approx \lambda\,(1-R)\;$ — le spread est, au premier ordre, l'intensite de defaut $\lambda$ fois la perte en cas de defaut.
+
+**Sensibilites.** $\text{CS01}=$ P&L pour $1$bp d'ecartement $\approx$ annuite risquee $\times$ nominal $\times 10^{-4}$; **jump-to-default** $=(1-R)\times$ nominal. Ne pas confondre **coupon annuel** $=s\times$ nominal et **PV de la jambe de prime** $=$ coupon annuel $\times$ annuite risquee.
+
+**Intuition rigoureuse.** Le CDS isole le risque de credit pur; on **bootstrappe la courbe de hasard** $\lambda(t)$ a partir des spreads quotes comme on bootstrappe une courbe de taux.
+
+**Piege theorique.** Le carry (coupon paye) est compense seulement par le widening/defaut: l'acheteur de protection est short carry, long crash de credit.
+
+**References (corpus).** *Analytical Finance Vol. II* (jambes prime/protection, Hull-White); *Principles of Financial Engineering* (proba risque-neutre de defaut, eq. 18.42); Choudhry, *Credit Derivatives*.
+
 ## Exemple numerique resolu
 _[genere - calcul verifie]_ On mesure le CS01, le carry et le P&L d'un ecartement de spread.
 
 **Donnees.** CDS notionnel 50m spread 120bp risky annuity 4.2 widen 25bp.
 
-### CS01 et carry CDS
+### CS01, carry et jump-to-default CDS
 - Famille: cds_cs01
 - Hypotheses controlees:
   - Approximation spread-DV01; pas de bootstrap de hazard curve.
   - Signe donne du point de vue acheteur de protection.
+  - Recovery 40% (LGD 60%) si non precise.
 - Calculs a respecter:
   - CS01:
     - Formule: Risky annuity * Notionnel * 1bp
     - Application: 4.2 * 50,000,000 * 0.0001
     - Resultat: 21,000 EUR/bp
-    - Lecture desk: Sensibilite approximative au spread de credit.
-  - Coupon annuel approx:
-    - Formule: Spread bp * CS01
-    - Application: 120 * 21,000
-    - Resultat: 2,520,000 EUR/an
-    - Lecture desk: Ordre de grandeur du carry premium.
+    - Lecture desk: Sensibilite (approx) de la MtM au spread de credit.
+  - Coupon annuel:
+    - Formule: Spread (en decimal) * Notionnel
+    - Application: 120bp * 50,000,000 = 1.2% * 50,000,000
+    - Resultat: 600,000 EUR/an
+    - Lecture desk: Prime PAYEE chaque annee par l'acheteur de protection (carry negatif pour lui).
+  - PV jambe de prime:
+    - Formule: Coupon annuel * Risky annuity
+    - Application: 600,000 * 4.2
+    - Resultat: 2,520,000 EUR
+    - Lecture desk: Valeur actualisee de TOUTES les primes futures; ne pas la confondre avec le coupon annuel.
+  - Jump-to-default (LGD 60%):
+    - Formule: (1 - Recovery) * Notionnel
+    - Application: (1 - 0.40) * 50,000,000
+    - Resultat: 30,000,000 EUR
+    - Lecture desk: Gain de l'acheteur de protection si defaut immediat; a comparer au carry paye.
   - P&L spread shock protection buyer:
     - Formule: CS01 * shock bp
     - Application: 21,000 * 25
     - Resultat: 525,000 EUR
-    - Lecture desk: Un acheteur de protection gagne si le spread s'elargit.
+    - Lecture desk: Un acheteur de protection gagne en MtM si le spread s'elargit.
 - Actions operationnelles attendues:
-  - Comparer carry et jump-to-default.
+  - Comparer carry annuel paye et jump-to-default protege.
+  - Distinguer coupon annuel (cash/an) et PV de la jambe de prime (valeur du contrat).
   - Hedger indice/single-name en tenant compte du basis.
 
 **Lecture finale.** Chaque chiffre ci-dessus a une unite explicite et un sens economique; un apprenant doit pouvoir refaire le calcul a la main et retrouver le meme ordre de grandeur.
@@ -167,68 +198,80 @@ _[genere]_ Un acheteur de protection CDS gagne-t-il ou perd-il quand le spread s
 _[genere]_ CDS 50m, spread 120bp, risky annuity 4.2, widen 25bp. Calculez CS01, carry et P&L.
 
 **Correction detaillee (calcul verifie).**
-### CS01 et carry CDS
+### CS01, carry et jump-to-default CDS
 - Famille: cds_cs01
 - Hypotheses controlees:
   - Approximation spread-DV01; pas de bootstrap de hazard curve.
   - Signe donne du point de vue acheteur de protection.
+  - Recovery 40% (LGD 60%) si non precise.
 - Calculs a respecter:
   - CS01:
     - Formule: Risky annuity * Notionnel * 1bp
     - Application: 4.2 * 50,000,000 * 0.0001
     - Resultat: 21,000 EUR/bp
-    - Lecture desk: Sensibilite approximative au spread de credit.
-  - Coupon annuel approx:
-    - Formule: Spread bp * CS01
-    - Application: 120 * 21,000
-    - Resultat: 2,520,000 EUR/an
-    - Lecture desk: Ordre de grandeur du carry premium.
+    - Lecture desk: Sensibilite (approx) de la MtM au spread de credit.
+  - Coupon annuel:
+    - Formule: Spread (en decimal) * Notionnel
+    - Application: 120bp * 50,000,000 = 1.2% * 50,000,000
+    - Resultat: 600,000 EUR/an
+    - Lecture desk: Prime PAYEE chaque annee par l'acheteur de protection (carry negatif pour lui).
+  - PV jambe de prime:
+    - Formule: Coupon annuel * Risky annuity
+    - Application: 600,000 * 4.2
+    - Resultat: 2,520,000 EUR
+    - Lecture desk: Valeur actualisee de TOUTES les primes futures; ne pas la confondre avec le coupon annuel.
+  - Jump-to-default (LGD 60%):
+    - Formule: (1 - Recovery) * Notionnel
+    - Application: (1 - 0.40) * 50,000,000
+    - Resultat: 30,000,000 EUR
+    - Lecture desk: Gain de l'acheteur de protection si defaut immediat; a comparer au carry paye.
   - P&L spread shock protection buyer:
     - Formule: CS01 * shock bp
     - Application: 21,000 * 25
     - Resultat: 525,000 EUR
-    - Lecture desk: Un acheteur de protection gagne si le spread s'elargit.
+    - Lecture desk: Un acheteur de protection gagne en MtM si le spread s'elargit.
 - Actions operationnelles attendues:
-  - Comparer carry et jump-to-default.
+  - Comparer carry annuel paye et jump-to-default protege.
+  - Distinguer coupon annuel (cash/an) et PV de la jambe de prime (valeur du contrat).
   - Hedger indice/single-name en tenant compte du basis.
 
 ## Mini-quiz
 _[genere]_ Mini-quiz de verification (5 questions).
 
-**Q1. Une VaR 99% 1j de 1m signifie:**
-- A) perte garantie de 1m
-- B) ~1 jour sur 100 la perte peut depasser 1m
-- C) gain de 1m
-- D) vol de 1m
-  - Reponse: **B**. C'est un quantile: la perte depasse rarement (1%) le seuil, sans borne au-dela.
+**Q1. Le CS01 d'un CDS mesure:**
+- A) le P&L pour 1bp d'ecartement de spread
+- B) le coupon annuel
+- C) la prime d'option
+- D) le DV01 de taux
+  - Reponse: **A**. CS01 = risky annuity * notionnel * 1bp: sensibilite de la MtM au spread de credit.
 
-**Q2. La VaR parametrique suppose surtout:**
-- A) des rendements normaux
-- B) des sauts frequents
-- C) une vol nulle
-- D) un spot constant
-  - Reponse: **A**. Elle s'appuie sur un quantile gaussien; elle sous-estime les queues epaisses.
+**Q2. Le coupon annuel d'un CDS vaut approximativement:**
+- A) spread * risky annuity * notionnel
+- B) spread * notionnel
+- C) CS01 * notionnel
+- D) recovery * notionnel
+  - Reponse: **B**. Le coupon paye chaque annee = spread (en decimal) * notionnel; multiplie par la risky annuity on obtient la PV de toute la jambe de prime, pas le coupon.
 
-**Q3. L'expected shortfall complete la VaR car:**
-- A) elle ignore les pertes
-- B) elle mesure la perte moyenne au-dela du seuil
-- C) elle est plus simple
-- D) elle est toujours plus petite
-  - Reponse: **B**. L'ES regarde la moyenne des pertes dans la queue, au-dela de la VaR.
+**Q3. Un acheteur de protection CDS quand le spread s'ecarte:**
+- A) perd en MtM
+- B) gagne en MtM
+- C) est insensible
+- D) paie plus de coupon
+  - Reponse: **B**. La protection detenue vaut plus cher: P&L MtM ~ CS01 * widening > 0.
 
-**Q4. Doubler l'horizon (iid) multiplie la VaR par:**
-- A) 2
-- B) sqrt(2)
-- C) 1
-- D) 4
-  - Reponse: **B**. Sous racine-du-temps, la VaR croit en sqrt(horizon).
+**Q4. Le jump-to-default d'un acheteur de protection vaut environ:**
+- A) recovery * notionnel
+- B) (1 - recovery) * notionnel
+- C) spread * notionnel
+- D) zero
+  - Reponse: **B**. En cas de defaut il recoit (1 - recovery) * notionnel, la perte sur le pair (LGD).
 
-**Q5. Un depassement de limite VaR appelle d'abord:**
-- A) ignorer
-- B) reduire/hedger/escalader
-- C) augmenter la position
-- D) changer la couleur
-  - Reponse: **B**. La reaction operationnelle est de reduire le risque ou d'escalader.
+**Q5. Le carry d'un acheteur de protection (hors defaut) est:**
+- A) positif
+- B) negatif: il paie la prime
+- C) nul
+- D) egal au CS01
+  - Reponse: **B**. Il paie le coupon chaque jour: carry negatif, compense seulement si un defaut/widening survient.
 
 ## Resume
 - L'intuition d'abord: comprendre le probleme de marche avant la formule.

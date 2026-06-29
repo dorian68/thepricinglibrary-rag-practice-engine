@@ -16,3 +16,7 @@ server*.log
 server*.err.log
 backend*.log
 
+# Research data artifacts (large parquet/csv panels — regenerate, not source)
+research/artifacts/
+*.parquet
+

@@ -129,72 +129,96 @@ Un piège courant pour un junior est de se concentrer uniquement sur la minimisa
 - Corrige detaille.
 - Quiz de verification rapide.
 
+## Fondements theoriques (ancres sources)
+_[genere - theorie, formules verifiees par un professionnel]_
+
+**Volatilite implicite.** $\sigma_{imp}(K,T)$ est l'unique vol qui recolle le prix de marche au modele BS: $C_{BS}(\sigma_{imp}) = C_{marche}$. Tracee en fonction du strike, elle dessine le **smile/skew** — preuve directe que BS (vol constante) est faux.
+
+**Volatilite locale (Dupire).** L'unique diffusion $dS=\sigma_{loc}(S,t)S\,dW$ compatible avec tous les prix d'options:
+$$\sigma_{loc}^2(K,T) = \frac{\partial_T C + (r-q)K\,\partial_K C + qC}{\tfrac12 K^2\,\partial_{KK}C}.$$
+
+**SABR (Hagan et al. 2002).** $dF=\alpha F^{\beta}dW_1,\; d\alpha=\nu\alpha\,dW_2,\; \langle dW_1,dW_2\rangle=\rho\,dt$. Approximation analytique de $\sigma_{imp}(K,F)$ tres utilisee pour interpoler/extrapoler le smile de taux. Heston ajoute une variance en racine a retour a la moyenne.
+
+**Intuition rigoureuse.** Le skew price l'asymetrie et les queues (crash risk): un put OTM cher = vol implicite elevee a bas strike. La vol implicite est un *prix*, pas une prevision.
+
+**Piege theorique.** La vol locale inversee de Dupire peut etre non-physique (negative) si la surface implicite n'est pas sans arbitrage (monotonie/convexite en $K$, calendar spreads). Sticky-strike vs sticky-delta changent le delta couvert.
+
+**References (corpus).** *FX Derivatives Trader School* (surface de vol locale, Heston); *Mathematics of the Financial Markets* (SABR $\alpha,\beta,\rho$); *Interest Rate Derivatives Explained Vol. 2* (Hagan 2002); *Encyclopedia of Quantitative Finance* (Dupire, non-physicalite).
+
 ## Exemple numerique resolu
-_[genere - calcul verifie]_ On price un call europeen a la monnaie et on lit prix, d1, d2 et greeks.
+_[genere - calcul verifie]_ On inverse Black-Scholes pour retrouver la volatilite implicite d'un call.
 
-**Donnees.** Call vanilla spot 100 strike 100 vol 20% maturite 1 taux 5%.
+**Donnees.** Call vanilla spot 100 strike 100 maturite 1 taux 5% prix de marche 10.4506, trouver la volatilite implicite.
 
-### Option vanilla Black-Scholes
-- Famille: vanilla_option_black_scholes
+### Volatilite implicite (inversion de Black-Scholes)
+- Famille: implied_vol_smile
 - Hypotheses controlees:
-  - Pas de dividende/carry si non precise.
-  - Volatilite et taux constants.
+  - On inverse le prix de marche d'un call vanilla pour retrouver sigma.
+  - Newton-Raphson amorce a 20%, derivee = vega.
+  - Prix de marche superieur a la valeur intrinseque (sinon pas de solution).
 - Calculs a respecter:
-  - d1/d2:
-    - Formule: BS d1, d2
-    - Application: d1=0.3500; d2=0.1500
-    - Resultat: d1=0.3500, d2=0.1500
-    - Lecture desk: Variables pivots du pricing et des greeks.
-  - Prix call:
-    - Formule: S*N(d1)-K*exp(-rT)*N(d2)
-    - Application: 100*N(0.3500)-100*exp(-0.0500*1)*N(0.1500)
-    - Resultat: 10.4506
-    - Lecture desk: Valeur theorique du call.
-  - Greeks:
-    - Formule: Delta=N(d1); Gamma=phi(d1)/(S sigma sqrt(T)); Vega=S phi(d1) sqrt(T)/100
-    - Application: inputs S=100, sigma=20.00%, T=1
-    - Resultat: Delta=0.6368; Gamma=0.018762; Vega/vol pt=0.3752
-    - Lecture desk: Base du hedge delta/vega.
+  - Valeur intrinseque actualisee:
+    - Formule: max(S - K*exp(-rT), 0)
+    - Application: max(100 - 100*exp(-0.0500*1), 0)
+    - Resultat: 4.8771
+    - Lecture desk: Plancher du prix; le market price doit etre au-dessus.
+  - Inversion Newton:
+    - Formule: sigma tel que BS(sigma) = prix marche
+    - Application: convergence en 2 iterations
+    - Resultat: vol implicite = 20.0000%
+    - Lecture desk: Volatilite que le marche 'price' dans cette option.
+  - Controle:
+    - Formule: BS(vol implicite) vs prix marche
+    - Application: BS(0.2000) = 10.4506
+    - Resultat: cible 10.4506
+    - Lecture desk: Le reprix avec la vol trouvee doit redonner le prix de marche.
 - Actions operationnelles attendues:
-  - Comparer prix modele et prix marche.
-  - Hedger delta puis surveiller vega/gamma.
+  - Repeter par strike pour tracer le smile/skew (vol implicite = f(strike)).
+  - Comparer la vol implicite a la vol realisee pour juger cher/pas cher.
+  - Surveiller la pente (skew) et la courbure: signal de risque de queue price par le marche.
+- Points de vigilance:
+  - La vol implicite n'est PAS une prevision: c'est le parametre qui recolle le prix de marche au modele BS.
 
 **Lecture finale.** Chaque chiffre ci-dessus a une unite explicite et un sens economique; un apprenant doit pouvoir refaire le calcul a la main et retrouver le meme ordre de grandeur.
 
 ## Exercices corriges
 ### Exercice 1 - application directe
-_[genere]_ Un call ATM a S=K=100, vol 20%, T=1, r=5%. Sans calculer finement, dites si son delta est plutot proche de 0, 0.5 ou 1, et pourquoi.
+_[genere]_ Identifiez le produit, son risque dominant et la donnee de marche qui le pilote le plus.
 
-**Correction.** Pour un call a la monnaie, N(d1) est legerement au-dessus de 0.5 (le drift r decale d1 vers le positif). Le delta est donc proche de 0.5-0.6: une hausse de 1 du spot fait gagner ~0.5-0.6 au call.
+**Correction.** Reponse type: nommer le payoff, la sensibilite de premier ordre (delta/DV01/CS01...) et la variable marche associee (spot/taux/spread).
 
 ### Exercice 2 - niveau desk
-_[genere]_ Spot 100, strike 100, vol 20%, T=1, r=5%. Calculez d1, d2, le prix du call et son delta, puis dites comment hedger 1000 calls.
+_[genere]_ Construisez un mini-cas chiffre du sujet et resolvez-le pas a pas avec unites et interpretation.
 
 **Correction detaillee (calcul verifie).**
-### Option vanilla Black-Scholes
-- Famille: vanilla_option_black_scholes
+### Volatilite implicite (inversion de Black-Scholes)
+- Famille: implied_vol_smile
 - Hypotheses controlees:
-  - Pas de dividende/carry si non precise.
-  - Volatilite et taux constants.
+  - On inverse le prix de marche d'un call vanilla pour retrouver sigma.
+  - Newton-Raphson amorce a 20%, derivee = vega.
+  - Prix de marche superieur a la valeur intrinseque (sinon pas de solution).
 - Calculs a respecter:
-  - d1/d2:
-    - Formule: BS d1, d2
-    - Application: d1=0.3500; d2=0.1500
-    - Resultat: d1=0.3500, d2=0.1500
-    - Lecture desk: Variables pivots du pricing et des greeks.
-  - Prix call:
-    - Formule: S*N(d1)-K*exp(-rT)*N(d2)
-    - Application: 100*N(0.3500)-100*exp(-0.0500*1)*N(0.1500)
-    - Resultat: 10.4506
-    - Lecture desk: Valeur theorique du call.
-  - Greeks:
-    - Formule: Delta=N(d1); Gamma=phi(d1)/(S sigma sqrt(T)); Vega=S phi(d1) sqrt(T)/100
-    - Application: inputs S=100, sigma=20.00%, T=1
-    - Resultat: Delta=0.6368; Gamma=0.018762; Vega/vol pt=0.3752
-    - Lecture desk: Base du hedge delta/vega.
+  - Valeur intrinseque actualisee:
+    - Formule: max(S - K*exp(-rT), 0)
+    - Application: max(100 - 100*exp(-0.0500*1), 0)
+    - Resultat: 4.8771
+    - Lecture desk: Plancher du prix; le market price doit etre au-dessus.
+  - Inversion Newton:
+    - Formule: sigma tel que BS(sigma) = prix marche
+    - Application: convergence en 2 iterations
+    - Resultat: vol implicite = 20.0000%
+    - Lecture desk: Volatilite que le marche 'price' dans cette option.
+  - Controle:
+    - Formule: BS(vol implicite) vs prix marche
+    - Application: BS(0.2000) = 10.4506
+    - Resultat: cible 10.4506
+    - Lecture desk: Le reprix avec la vol trouvee doit redonner le prix de marche.
 - Actions operationnelles attendues:
-  - Comparer prix modele et prix marche.
-  - Hedger delta puis surveiller vega/gamma.
+  - Repeter par strike pour tracer le smile/skew (vol implicite = f(strike)).
+  - Comparer la vol implicite a la vol realisee pour juger cher/pas cher.
+  - Surveiller la pente (skew) et la courbure: signal de risque de queue price par le marche.
+- Points de vigilance:
+  - La vol implicite n'est PAS une prevision: c'est le parametre qui recolle le prix de marche au modele BS.
 
 ## Mini-quiz
 _[genere]_ Mini-quiz de verification (5 questions).

@@ -1,0 +1,28 @@
+# Deploy the ThePricingLibrary backend on your VPS:
+#   docker compose up -d --build
+# Then point the frontend at it: VITE_TPL_RAG_API_URL=https://api.your-domain.com
+#
+# Secrets (OpenAI premium prose, real Stripe) are passed via env — never baked in.
+# Without them the backend runs in offline/template + Stripe-mock mode, which is
+# fully functional for the platform data API, exercises (verified calc packs) and
+# courses. Seed starter content once with: docker compose exec api python scripts/seed_platform.py
+services:
+  api:
+    build: .
+    image: thepricinglibrary-backend:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      TPL_LLM_PROVIDER: ${TPL_LLM_PROVIDER:-template}      # set to "openai" for premium prose
+      TPL_OPENAI_API_KEY: ${TPL_OPENAI_API_KEY:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRICE_STARTER: ${STRIPE_PRICE_STARTER:-}
+      STRIPE_PRICE_STUDENT: ${STRIPE_PRICE_STUDENT:-}
+      STRIPE_PRICE_PRO: ${STRIPE_PRICE_PRO:-}
+    volumes:
+      - tpl_data:/data
+
+volumes:
+  tpl_data:

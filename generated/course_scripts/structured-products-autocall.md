@@ -140,72 +140,111 @@ Un piège courant pour un junior est de sous-estimer l'impact du risque de vega,
 - Corrige detaille.
 - Quiz de verification rapide.
 
+## Fondements theoriques (ancres sources)
+_[genere - theorie, formules verifiees par un professionnel]_
+
+**Mecanique.** A chaque date d'observation $t_i$: si $S_{t_i}\ge$ barriere d'autocall, **rappel anticipe** (nominal + coupon); si $\ge$ barriere de coupon, coupon paye (avec **memoire** des coupons manques); a maturite, si jamais rappele, capital protege tant que $S_T\ge$ barriere de protection, sinon perte $1{:}1$.
+
+**Decomposition vendeur (risque).** Vendre un autocall worst-of revient a etre
+$$\text{short les digitales de coupon/autocall} \;+\; \text{long un put down-and-in worst-of},$$
+soit, du point de vue du **vendeur**, un profil **long skew, long volatilite, short correlation (= long dispersion)**, en echange du portage paye via les coupons digitaux vendus. (L'investisseur est exactement le miroir: short vol, short skew, long correlation, recoit le coupon.)
+
+**Pricing.** Pas de forme fermee (payoff path-dependent, souvent multi-sous-jacents): on price par **Monte-Carlo** sous vol/dividendes/correlation (lien vers monte_carlo et vol_smile).
+
+**Intuition rigoureuse.** L'investisseur vend de la protection en echange d'un coupon eleve: il est *short* le crash. L'effet "snowball" (memoire) concentre les coupons sur les scenarios de remontee.
+
+**Piege theorique.** Le risque vendeur est non lineaire et explose pres de la barriere de protection a l'approche de la maturite (gap + correlation qui monte en stress).
+
+**References (corpus).** Bouzoubaa & Osseiran, *Exotic Options and Hybrids* (§12.4 snowball, worst-of put, decomposition de risque); *Pricing and Hedging Financial Derivatives* (notes structurees, worst-of digital).
+
 ## Exemple numerique resolu
-_[genere - calcul verifie]_ On calcule le payoff conditionnel et on discute le gap risk.
+_[genere - calcul verifie]_ On deroule le payoff d'un autocall a memoire selon un scenario d'observations.
 
-**Donnees.** Option barriere FX down-and-out, spot 1.0800, strike 1.1000, barriere down-and-out 1.0000, notionnel EUR 10m. Spot a 1.0500, spot a 1.2000.
+**Donnees.** Autocall Athena sur indice, niveau initial 100, barriere autocall 100%, barriere coupon 70%, barriere protection 60%, coupon 6% par observation avec memoire, notionnel 1m. Niveaux observes: 65, 102.
 
-### Payoff et risque de gap d'une barriere
-- Famille: fx_barrier_option
+### Payoff d'un autocall (Athena a memoire)
+- Famille: autocall_structured
 - Hypotheses controlees:
-  - Down-and-out: si la barriere est touchee pendant la vie du produit, payoff final nul.
-  - Les scenarios non knock-out utilisent un payoff de call simple.
-  - Distance initiale a la barriere: 8.00%.
+  - Observations periodiques fournies; chaque niveau compare au niveau initial.
+  - Effet memoire des coupons: actif.
+  - Barriere autocall, coupon et protection en % du niveau initial.
+  - Protection du capital de type europeenne (observee a maturite).
 - Calculs a respecter:
-  - Scenario spot 1.05:
-    - Formule: Payoff down-and-out call
-    - Application: max(1.05 - 1.1, 0) * 10,000,000
-    - Resultat: 0 USD approx
-    - Lecture desk: Payoff de call conditionnel au non knock-out.
-  - Scenario spot 1.2:
-    - Formule: Payoff down-and-out call
-    - Application: max(1.2 - 1.1, 0) * 10,000,000
-    - Resultat: 1,000,000 USD approx
-    - Lecture desk: Payoff de call conditionnel au non knock-out.
+  - Observation 1 - coupon:
+    - Formule: ratio < barriere coupon
+    - Application: ratio 65.00% < 70%
+    - Resultat: 0 EUR (coupon en memoire)
+    - Lecture desk: Coupon non paye; mis en memoire pour la prochaine observation.
+  - Observation 2 - coupon:
+    - Formule: coupon * periodes dues * notionnel
+    - Application: 0.06 * 2 * 1,000,000
+    - Resultat: +120,000 EUR
+    - Lecture desk: niveau 102 (ratio 102.00%) >= barriere coupon 70%: paie 2 coupon(s) (memoire)
+  - Observation 2 - autocall:
+    - Formule: ratio >= barriere autocall
+    - Application: ratio 102.00% >= 100%
+    - Resultat: rappel anticipe: +1,000,000 EUR
+    - Lecture desk: Le produit est rappele: remboursement du nominal puis arret.
+  - Payoff total investisseur:
+    - Formule: Somme coupons + remboursement
+    - Application: 120,000 + 1,000,000
+    - Resultat: 1,120,000 EUR
+    - Lecture desk: Cash total recu sur la vie du produit.
 - Actions operationnelles attendues:
-  - Surveiller le spot et le risque de gap proche barriere.
-  - Discuter hedge delta/gamma mais signaler la discontinuite de payoff.
-  - Prevoir escalation risk si le spot entre dans une zone de monitoring.
+  - Identifier le scenario dominant: rappel anticipe (probable si spot eleve) ou perte en capital.
+  - Lire la sensibilite vendeur: short put down-and-in + short calls digitaux (autocall = combinaison d'options).
+  - Surveiller le gap pres de la barriere de protection a l'approche de la maturite.
 - Points de vigilance:
-  - Une couverture delta continue peut echouer en cas de gap a travers la barriere.
-  - La valeur reelle requiert un modele barriere, pas seulement le payoff terminal.
+  - Le prix reel exige un modele (Monte Carlo sous vol/dividendes/correlation), pas seulement le payoff de scenarios.
+  - Le risque vendeur est non lineaire et path-dependent: la protection peut sauter pres de la barriere.
 
 **Lecture finale.** Chaque chiffre ci-dessus a une unite explicite et un sens economique; un apprenant doit pouvoir refaire le calcul a la main et retrouver le meme ordre de grandeur.
 
 ## Exercices corriges
 ### Exercice 1 - application directe
-_[genere]_ Un down-and-out call est-il plus cher ou moins cher qu'un call vanilla equivalent?
+_[genere]_ Identifiez le produit, son risque dominant et la donnee de marche qui le pilote le plus.
 
-**Correction.** Moins cher: il peut s'eteindre si la barriere est touchee, donc il offre moins -> prime inferieure. In-out parity: C_vanilla = C_out + C_in.
+**Correction.** Reponse type: nommer le payoff, la sensibilite de premier ordre (delta/DV01/CS01...) et la variable marche associee (spot/taux/spread).
 
 ### Exercice 2 - niveau desk
-_[genere]_ Down-and-out call FX, spot 1.0800, strike 1.1000, barriere 1.0000, notionnel 10m. Payoff si le spot finit a 1.0500? a 1.2000 sans toucher la barriere?
+_[genere]_ Construisez un mini-cas chiffre du sujet et resolvez-le pas a pas avec unites et interpretation.
 
 **Correction detaillee (calcul verifie).**
-### Payoff et risque de gap d'une barriere
-- Famille: fx_barrier_option
+### Payoff d'un autocall (Athena a memoire)
+- Famille: autocall_structured
 - Hypotheses controlees:
-  - Down-and-out: si la barriere est touchee pendant la vie du produit, payoff final nul.
-  - Les scenarios non knock-out utilisent un payoff de call simple.
-  - Distance initiale a la barriere: 8.00%.
+  - Observations periodiques fournies; chaque niveau compare au niveau initial.
+  - Effet memoire des coupons: actif.
+  - Barriere autocall, coupon et protection en % du niveau initial.
+  - Protection du capital de type europeenne (observee a maturite).
 - Calculs a respecter:
-  - Scenario spot 1.05:
-    - Formule: Payoff down-and-out call
-    - Application: max(1.05 - 1.1, 0) * 10,000,000
-    - Resultat: 0 USD approx
-    - Lecture desk: Payoff de call conditionnel au non knock-out.
-  - Scenario spot 1.2:
-    - Formule: Payoff down-and-out call
-    - Application: max(1.2 - 1.1, 0) * 10,000,000
-    - Resultat: 1,000,000 USD approx
-    - Lecture desk: Payoff de call conditionnel au non knock-out.
+  - Observation 1 - coupon:
+    - Formule: ratio < barriere coupon
+    - Application: ratio 65.00% < 70%
+    - Resultat: 0 EUR (coupon en memoire)
+    - Lecture desk: Coupon non paye; mis en memoire pour la prochaine observation.
+  - Observation 2 - coupon:
+    - Formule: coupon * periodes dues * notionnel
+    - Application: 0.06 * 2 * 1,000,000
+    - Resultat: +120,000 EUR
+    - Lecture desk: niveau 102 (ratio 102.00%) >= barriere coupon 70%: paie 2 coupon(s) (memoire)
+  - Observation 2 - autocall:
+    - Formule: ratio >= barriere autocall
+    - Application: ratio 102.00% >= 100%
+    - Resultat: rappel anticipe: +1,000,000 EUR
+    - Lecture desk: Le produit est rappele: remboursement du nominal puis arret.
+  - Payoff total investisseur:
+    - Formule: Somme coupons + remboursement
+    - Application: 120,000 + 1,000,000
+    - Resultat: 1,120,000 EUR
+    - Lecture desk: Cash total recu sur la vie du produit.
 - Actions operationnelles attendues:
-  - Surveiller le spot et le risque de gap proche barriere.
-  - Discuter hedge delta/gamma mais signaler la discontinuite de payoff.
-  - Prevoir escalation risk si le spot entre dans une zone de monitoring.
+  - Identifier le scenario dominant: rappel anticipe (probable si spot eleve) ou perte en capital.
+  - Lire la sensibilite vendeur: short put down-and-in + short calls digitaux (autocall = combinaison d'options).
+  - Surveiller le gap pres de la barriere de protection a l'approche de la maturite.
 - Points de vigilance:
-  - Une couverture delta continue peut echouer en cas de gap a travers la barriere.
-  - La valeur reelle requiert un modele barriere, pas seulement le payoff terminal.
+  - Le prix reel exige un modele (Monte Carlo sous vol/dividendes/correlation), pas seulement le payoff de scenarios.
+  - Le risque vendeur est non lineaire et path-dependent: la protection peut sauter pres de la barriere.
 
 ## Mini-quiz
 _[genere]_ Mini-quiz de verification (5 questions).

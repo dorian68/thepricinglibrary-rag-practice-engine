@@ -35,8 +35,8 @@ COURSE_SPECS = [
         product="equity vanilla option",
         concepts=["Black-Scholes", "put-call parity", "delta", "vega"],
         level="beginner",
-        duration_minutes=90,
-        module_count=4,
+        duration_minutes=180,
+        module_count=8,
     ),
     CourseSpec(
         slug="options-book-greeks-pnl",
@@ -44,8 +44,8 @@ COURSE_SPECS = [
         product="equity options book",
         concepts=["delta", "gamma", "vega", "theta", "hedging"],
         level="intermediate",
-        duration_minutes=120,
-        module_count=5,
+        duration_minutes=210,
+        module_count=9,
     ),
     CourseSpec(
         slug="rates-swaps-dv01",
@@ -53,8 +53,8 @@ COURSE_SPECS = [
         product="EUR interest-rate swap",
         concepts=["par rate", "annuity", "DV01", "curve shock"],
         level="intermediate",
-        duration_minutes=120,
-        module_count=5,
+        duration_minutes=210,
+        module_count=9,
     ),
     CourseSpec(
         slug="yield-curve-bootstrapping",
@@ -62,8 +62,8 @@ COURSE_SPECS = [
         product="interest-rate curve",
         concepts=["discount factors", "zero curve", "forward rates", "interpolation"],
         level="intermediate",
-        duration_minutes=130,
-        module_count=5,
+        duration_minutes=220,
+        module_count=9,
     ),
     CourseSpec(
         slug="implied-volatility-smile",
@@ -71,8 +71,8 @@ COURSE_SPECS = [
         product="equity index options",
         concepts=["implied volatility", "smile", "skew", "SVI"],
         level="intermediate",
-        duration_minutes=130,
-        module_count=5,
+        duration_minutes=220,
+        module_count=9,
     ),
     CourseSpec(
         slug="monte-carlo-pricing",
@@ -80,8 +80,8 @@ COURSE_SPECS = [
         product="path-dependent option",
         concepts=["GBM", "Asian option", "standard error", "variance reduction"],
         level="advanced",
-        duration_minutes=140,
-        module_count=5,
+        duration_minutes=240,
+        module_count=10,
     ),
     CourseSpec(
         slug="barrier-options-gap-risk",
@@ -89,8 +89,8 @@ COURSE_SPECS = [
         product="FX barrier option",
         concepts=["down-and-out", "knock-out", "gap risk", "monitoring"],
         level="advanced",
-        duration_minutes=130,
-        module_count=5,
+        duration_minutes=230,
+        module_count=9,
     ),
     CourseSpec(
         slug="structured-products-autocall",
@@ -98,8 +98,8 @@ COURSE_SPECS = [
         product="autocallable note",
         concepts=["coupon barrier", "autocall", "protection barrier", "redemption"],
         level="advanced",
-        duration_minutes=150,
-        module_count=6,
+        duration_minutes=250,
+        module_count=10,
     ),
     CourseSpec(
         slug="credit-derivatives-cds",
@@ -107,8 +107,8 @@ COURSE_SPECS = [
         product="single-name CDS",
         concepts=["spread", "risky annuity", "CS01", "carry"],
         level="intermediate",
-        duration_minutes=110,
-        module_count=4,
+        duration_minutes=210,
+        module_count=8,
     ),
     CourseSpec(
         slug="market-risk-var-stress",
@@ -116,8 +116,8 @@ COURSE_SPECS = [
         product="multi-asset portfolio",
         concepts=["parametric VaR", "expected shortfall", "stress test", "risk limit"],
         level="intermediate",
-        duration_minutes=120,
-        module_count=5,
+        duration_minutes=220,
+        module_count=9,
     ),
     CourseSpec(
         slug="fixed-income-bonds-duration",
@@ -125,8 +125,8 @@ COURSE_SPECS = [
         product="fixed-income bond",
         concepts=["clean price", "YTM", "duration", "convexity", "DV01"],
         level="beginner",
-        duration_minutes=100,
-        module_count=4,
+        duration_minutes=190,
+        module_count=8,
     ),
     CourseSpec(
         slug="stochastic-calculus-for-hedging",
@@ -134,8 +134,8 @@ COURSE_SPECS = [
         product="option pricing model",
         concepts=["Ito lemma", "SDE", "risk-neutral measure", "hedging"],
         level="expert",
-        duration_minutes=150,
-        module_count=6,
+        duration_minutes=260,
+        module_count=10,
     ),
 ]
 
@@ -411,6 +411,7 @@ def main() -> None:
             level=spec.level,  # type: ignore[arg-type]
             duration_minutes=spec.duration_minutes,
             module_count=spec.module_count,
+            top_k=18,
             language=args.language,
         )
         response = agent.create_course(request)
@@ -425,7 +426,7 @@ def main() -> None:
                 "product": spec.product,
                 "concepts": spec.concepts,
                 "level": spec.level,
-                "path": str(path),
+                "path": f"/course-scripts/{spec.slug}.md",
                 "source_count": len(response.sources),
             }
         )

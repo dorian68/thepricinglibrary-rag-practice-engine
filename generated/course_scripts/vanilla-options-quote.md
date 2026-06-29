@@ -131,6 +131,26 @@ Un piège courant pour un junior est de se concentrer uniquement sur le delta sa
 - Corrige detaille.
 - Quiz de verification rapide.
 
+## Fondements theoriques (ancres sources)
+_[genere - theorie, formules verifiees par un professionnel]_
+
+**Definition.** Sous la mesure risque-neutre $\mathbb{Q}$, le prix d'un derive europeen est l'esperance actualisee de son payoff: $V_0 = e^{-rT}\,\mathbb{E}^{\mathbb{Q}}[\,\text{payoff}(S_T)\,]$. Le sous-jacent suit $dS_t = (r-q)S_t\,dt + \sigma S_t\,dW_t^{\mathbb{Q}}$.
+
+**Equation de Black-Scholes.** Tout derive $V(S,t)$ replicable verifie l'EDP
+$$\frac{\partial V}{\partial t} + \tfrac{1}{2}\sigma^2 S^2 \frac{\partial^2 V}{\partial S^2} + (r-q)S\frac{\partial V}{\partial S} - rV = 0.$$
+
+**Forme fermee (call/put, dividende continu $q$).**
+$$C = S_0 e^{-qT}N(d_1) - K e^{-rT}N(d_2), \qquad P = K e^{-rT}N(-d_2) - S_0 e^{-qT}N(-d_1),$$
+$$d_1 = \frac{\ln(S_0/K) + (r-q+\tfrac12\sigma^2)T}{\sigma\sqrt{T}}, \qquad d_2 = d_1 - \sigma\sqrt{T}.$$
+
+**Interpretation probabiliste.** $N(d_2) = \mathbb{Q}(S_T > K)$ est la probabilite risque-neutre d'exercice; $S_0 e^{-qT}N(d_1) = e^{-rT}\,\mathbb{E}^{\mathbb{Q}}[S_T\mathbf{1}_{S_T>K}]$ est l'esperance actualisee *partielle* du sous-jacent sur l'evenement d'exercice (valeur d'un asset-or-nothing) — a ne pas confondre avec une esperance conditionnelle, qui diviserait par $N(d_2)$. Le delta du call vaut $e^{-qT}N(d_1)$.
+
+**Parite call-put.** $C - P = S_0 e^{-qT} - K e^{-rT}$ (modele-independante: pur arbitrage).
+
+**Hypotheses (a connaitre et critiquer).** vol et taux constants, pas de saut, marche sans friction, possibilite de hedge continu, log-normalite. Le smile (voir vol_smile) est la trace empirique de leur violation.
+
+**References (corpus).** Joshi, *The Concepts and Practice of Mathematical Finance* (derivation risque-neutre, ex. 6.4); *The Mathematics of Options* (forme avec dividende); *Computational Finance Using C and C#* (d1/d2, A.1.4); Baxter & Rennie, *Financial Calculus* (replication, martingales).
+
 ## Exemple numerique resolu
 _[genere - calcul verifie]_ On price un call europeen a la monnaie et on lit prix, d1, d2 et greeks.
 
@@ -139,8 +159,8 @@ _[genere - calcul verifie]_ On price un call europeen a la monnaie et on lit pri
 ### Option vanilla Black-Scholes
 - Famille: vanilla_option_black_scholes
 - Hypotheses controlees:
-  - Pas de dividende/carry si non precise.
-  - Volatilite et taux constants.
+  - Pas de dividende ni de carry si non precise (sinon remplacer S par S*exp(-qT) dans d1 et le prix).
+  - Volatilite et taux constants; exercice europeen.
 - Calculs a respecter:
   - d1/d2:
     - Formule: BS d1, d2
@@ -152,14 +172,25 @@ _[genere - calcul verifie]_ On price un call europeen a la monnaie et on lit pri
     - Application: 100*N(0.3500)-100*exp(-0.0500*1)*N(0.1500)
     - Resultat: 10.4506
     - Lecture desk: Valeur theorique du call.
+  - Prix put:
+    - Formule: K*exp(-rT)*N(-d2)-S*N(-d1)
+    - Application: 100*exp(-0.0500*1)*N(-0.1500)-100*N(-0.3500)
+    - Resultat: 5.5735
+    - Lecture desk: Valeur theorique du put europeen de meme strike/maturite.
+  - Verification parite call-put:
+    - Formule: C - P = S - K*exp(-rT)
+    - Application: 10.4506 - 5.5735 = 100 - 95.1229
+    - Resultat: 4.8771 = 4.8771
+    - Lecture desk: Si les deux cotes ne collent pas, une quote est incoherente / arbitrable.
   - Greeks:
     - Formule: Delta=N(d1); Gamma=phi(d1)/(S sigma sqrt(T)); Vega=S phi(d1) sqrt(T)/100
     - Application: inputs S=100, sigma=20.00%, T=1
     - Resultat: Delta=0.6368; Gamma=0.018762; Vega/vol pt=0.3752
-    - Lecture desk: Base du hedge delta/vega.
+    - Lecture desk: Base du hedge delta/vega; delta du put = delta call - 1.
 - Actions operationnelles attendues:
   - Comparer prix modele et prix marche.
   - Hedger delta puis surveiller vega/gamma.
+  - Verifier la parite call-put avant de coter les deux jambes.
 
 **Lecture finale.** Chaque chiffre ci-dessus a une unite explicite et un sens economique; un apprenant doit pouvoir refaire le calcul a la main et retrouver le meme ordre de grandeur.
 
@@ -176,8 +207,8 @@ _[genere]_ Spot 100, strike 100, vol 20%, T=1, r=5%. Calculez d1, d2, le prix du
 ### Option vanilla Black-Scholes
 - Famille: vanilla_option_black_scholes
 - Hypotheses controlees:
-  - Pas de dividende/carry si non precise.
-  - Volatilite et taux constants.
+  - Pas de dividende ni de carry si non precise (sinon remplacer S par S*exp(-qT) dans d1 et le prix).
+  - Volatilite et taux constants; exercice europeen.
 - Calculs a respecter:
   - d1/d2:
     - Formule: BS d1, d2
@@ -189,14 +220,25 @@ _[genere]_ Spot 100, strike 100, vol 20%, T=1, r=5%. Calculez d1, d2, le prix du
     - Application: 100*N(0.3500)-100*exp(-0.0500*1)*N(0.1500)
     - Resultat: 10.4506
     - Lecture desk: Valeur theorique du call.
+  - Prix put:
+    - Formule: K*exp(-rT)*N(-d2)-S*N(-d1)
+    - Application: 100*exp(-0.0500*1)*N(-0.1500)-100*N(-0.3500)
+    - Resultat: 5.5735
+    - Lecture desk: Valeur theorique du put europeen de meme strike/maturite.
+  - Verification parite call-put:
+    - Formule: C - P = S - K*exp(-rT)
+    - Application: 10.4506 - 5.5735 = 100 - 95.1229
+    - Resultat: 4.8771 = 4.8771
+    - Lecture desk: Si les deux cotes ne collent pas, une quote est incoherente / arbitrable.
   - Greeks:
     - Formule: Delta=N(d1); Gamma=phi(d1)/(S sigma sqrt(T)); Vega=S phi(d1) sqrt(T)/100
     - Application: inputs S=100, sigma=20.00%, T=1
     - Resultat: Delta=0.6368; Gamma=0.018762; Vega/vol pt=0.3752
-    - Lecture desk: Base du hedge delta/vega.
+    - Lecture desk: Base du hedge delta/vega; delta du put = delta call - 1.
 - Actions operationnelles attendues:
   - Comparer prix modele et prix marche.
   - Hedger delta puis surveiller vega/gamma.
+  - Verifier la parite call-put avant de coter les deux jambes.
 
 ## Mini-quiz
 _[genere]_ Mini-quiz de verification (5 questions).

@@ -1,0 +1,24 @@
+{
+  "n_true_trials": 420,
+  "trial_sharpe_variance": 0.001570034854531373,
+  "head_dsr_true": 1.727579046484351e-07,
+  "head_pbo": 0.7,
+  "cv_sharpe": 0.0031436967675881923,
+  "lockbox_sharpe": 0.11687460658969633,
+  "retain": 37.17744274660471,
+  "retain_meaningful": false,
+  "gates": {
+    "DSR_true>0.95": false,
+    "PBO<0.5": false,
+    "lockbox_retain>=70%": false
+  },
+  "deployable": false,
+  "breadth": {
+    "n_instruments": 10,
+    "pct_positive": 90.0,
+    "bh": 0,
+    "bonf": 0
+  },
+  "soft_beats_hard": true,
+  "dl_beats_tab": false
+}

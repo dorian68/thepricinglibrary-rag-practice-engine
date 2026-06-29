@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-06-28T14:41:35+00:00",
+  "llm": "template",
+  "db_path": "C:\\Users\\Labry\\Documents\\THEPRICINGLIBRARY\\Tools\\pricinglibrary_rag_backend\\data\\pricinglibrary_rag.sqlite3",
+  "document_count": 123,
+  "courses": [
+    {
+      "slug": "vanilla-options-quote",
+      "title": "Module pratique - Vanilla options desk quote",
+      "topic": "Vanilla options desk quote",
+      "product": "equity vanilla option",
+      "concepts": [
+        "Black-Scholes",
+        "put-call parity",
+        "delta",
+        "vega"
+      ],
+      "level": "beginner",
+      "path": "C:\\Users\\Labry\\Documents\\THEPRICINGLIBRARY\\Tools\\pricinglibrary_rag_backend\\generated\\course_scripts_hull_probe\\vanilla-options-quote.md",
+      "source_count": 18
+    }
+  ]
+}

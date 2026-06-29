@@ -1,0 +1,13 @@
+# Slim runtime deps for the deployed API (platform data, billing, exercise/course
+# generation with local-hashing embeddings + template/openai LLM). The heavy,
+# optional ML stack (torch/transformers/sentence-transformers) and PDF ingestion
+# (PyMuPDF) are intentionally excluded — the default embedding backend is
+# 'local-hashing' and needs none of them. Add them back only if you switch
+# TPL_EMBEDDING_BACKEND to a transformer model or ingest PDFs in-container.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2
+numpy>=1.24
+scikit-learn>=1.3
+openai>=2.0
+stripe>=9

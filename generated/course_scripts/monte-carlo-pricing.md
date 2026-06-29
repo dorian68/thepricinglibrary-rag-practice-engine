@@ -128,72 +128,119 @@ Un piège courant pour un junior est de penser que la réduction de variance est
 - Corrige detaille.
 - Quiz de verification rapide.
 
+## Fondements theoriques (ancres sources)
+_[genere - theorie, formules verifiees par un professionnel]_
+
+**Estimateur.** Pour un payoff europeen,
+$$\hat{V} = e^{-rT}\,\frac{1}{N}\sum_{i=1}^{N} \text{payoff}\big(S_T^{(i)}\big),\qquad SE = \frac{e^{-rT}\,\hat{s}}{\sqrt{N}},$$
+avec $\hat{s}$ l'ecart-type empirique des payoffs. **Convergence en $O(N^{-1/2})$**: diviser l'erreur par 2 coute $\times 4$ en simulations.
+
+**Schema exact GBM.** $S_T = S_0\exp\!\big((r-\tfrac12\sigma^2)T + \sigma\sqrt{T}\,Z\big)$, $Z\sim\mathcal{N}(0,1)$ (pas de biais de discretisation pour un payoff terminal).
+
+**Reduction de variance.**
+- *Antithetiques*: utiliser $(Z,-Z)$ — la correlation negative reduit la variance a cout egal.
+- *Variable de controle*: $\hat{V}_{cv} = \hat{V} - \beta^*(\hat{X}-\mathbb{E}X)$, avec $\beta^* = \mathrm{Cov}(V,X)/\mathrm{Var}(X)$ (ex. controle = call BS analytique).
+
+**Intuition rigoureuse.** L'IC $\hat{V}\pm 1.96\,SE$ doit contenir le prix ferme: c'est le test de non-biais d'implementation. Un IC etroit ne corrige **pas** un biais de modele.
+
+**Piege theorique.** Pour les payoffs path-dependent (barrieres, asiatiques, americaines) il faut discretiser le chemin (biais de pas de temps) et, pour l'exercice anticipe, **LSM (Longstaff-Schwartz)**.
+
+**References (corpus).** Glasserman, *Handbook in Monte Carlo Simulation* (variance reduction, importance sampling); *Pricing Derivative Securities* (antithetiques); Tavella, *Quantitative Methods in Derivatives Pricing* (variance vs cout).
+
 ## Exemple numerique resolu
-_[genere - calcul verifie]_ On price un call europeen a la monnaie et on lit prix, d1, d2 et greeks.
+_[genere - calcul verifie]_ On price un call par simulation GBM et on lit l'intervalle de confiance.
 
-**Donnees.** Call vanilla spot 100 strike 100 vol 20% maturite 1 taux 5%.
+**Donnees.** Monte Carlo call europeen spot 100 strike 100 vol 20% maturite 1 taux 5%, 20000 simulations.
 
-### Option vanilla Black-Scholes
-- Famille: vanilla_option_black_scholes
+### Pricing Monte Carlo d'un call (GBM) avec intervalle de confiance
+- Famille: monte_carlo_gbm
 - Hypotheses controlees:
-  - Pas de dividende/carry si non precise.
-  - Volatilite et taux constants.
+  - GBM risque-neutre, 20,000 trajectoires, graine fixe (resultat reproductible).
+  - Tirages i.i.d. (graine fixe): l'erreur standard ci-dessous suppose des trajectoires independantes.
+  - Pas de dividende si non precise; vol et taux constants.
 - Calculs a respecter:
-  - d1/d2:
-    - Formule: BS d1, d2
-    - Application: d1=0.3500; d2=0.1500
-    - Resultat: d1=0.3500, d2=0.1500
-    - Lecture desk: Variables pivots du pricing et des greeks.
-  - Prix call:
+  - Simulation S_T:
+    - Formule: S_T = S0*exp((r-0.5*sigma^2)T + sigma*sqrt(T)*Z)
+    - Application: S0=100, drift=0.0300, diffusion=0.2000
+    - Resultat: 20,000 tirages
+    - Lecture desk: Echantillon de prix terminaux sous mesure risque-neutre.
+  - Prix MC:
+    - Formule: exp(-rT) * moyenne(max(S_T-K,0))
+    - Application: exp(-0.0500*1) * 11.0080
+    - Resultat: 10.4711
+    - Lecture desk: Estimateur du prix; converge en 1/sqrt(N).
+  - Erreur standard:
+    - Formule: exp(-rT)*ecart-type(payoff)/sqrt(N)
+    - Application: 0.9512*15.5533/sqrt(20000)
+    - Resultat: 0.1046
+    - Lecture desk: Precision de l'estimateur; diminue en 1/sqrt(N).
+  - IC 95%:
+    - Formule: Prix +/- 1.96 * SE
+    - Application: 10.4711 +/- 0.2050
+    - Resultat: [10.2661; 10.6761]
+    - Lecture desk: L'intervalle doit contenir le prix Black-Scholes ferme.
+  - Reference Black-Scholes:
     - Formule: S*N(d1)-K*exp(-rT)*N(d2)
-    - Application: 100*N(0.3500)-100*exp(-0.0500*1)*N(0.1500)
+    - Application: controle ferme
     - Resultat: 10.4506
-    - Lecture desk: Valeur theorique du call.
-  - Greeks:
-    - Formule: Delta=N(d1); Gamma=phi(d1)/(S sigma sqrt(T)); Vega=S phi(d1) sqrt(T)/100
-    - Application: inputs S=100, sigma=20.00%, T=1
-    - Resultat: Delta=0.6368; Gamma=0.018762; Vega/vol pt=0.3752
-    - Lecture desk: Base du hedge delta/vega.
+    - Lecture desk: Benchmark analytique: le MC doit tomber dans l'IC.
 - Actions operationnelles attendues:
-  - Comparer prix modele et prix marche.
-  - Hedger delta puis surveiller vega/gamma.
+  - Augmenter N pour resserrer l'IC (cout en 1/sqrt(N)).
+  - Utiliser antithetiques/variables de controle pour reduire la variance a cout egal.
+  - Verifier que le prix ferme tombe dans l'IC: sinon, biais d'implementation.
+- Points de vigilance:
+  - Un IC etroit ne corrige pas un biais de modele (drift, discretisation, payoff path-dependent).
 
 **Lecture finale.** Chaque chiffre ci-dessus a une unite explicite et un sens economique; un apprenant doit pouvoir refaire le calcul a la main et retrouver le meme ordre de grandeur.
 
 ## Exercices corriges
 ### Exercice 1 - application directe
-_[genere]_ Un call ATM a S=K=100, vol 20%, T=1, r=5%. Sans calculer finement, dites si son delta est plutot proche de 0, 0.5 ou 1, et pourquoi.
+_[genere]_ Identifiez le produit, son risque dominant et la donnee de marche qui le pilote le plus.
 
-**Correction.** Pour un call a la monnaie, N(d1) est legerement au-dessus de 0.5 (le drift r decale d1 vers le positif). Le delta est donc proche de 0.5-0.6: une hausse de 1 du spot fait gagner ~0.5-0.6 au call.
+**Correction.** Reponse type: nommer le payoff, la sensibilite de premier ordre (delta/DV01/CS01...) et la variable marche associee (spot/taux/spread).
 
 ### Exercice 2 - niveau desk
-_[genere]_ Spot 100, strike 100, vol 20%, T=1, r=5%. Calculez d1, d2, le prix du call et son delta, puis dites comment hedger 1000 calls.
+_[genere]_ Construisez un mini-cas chiffre du sujet et resolvez-le pas a pas avec unites et interpretation.
 
 **Correction detaillee (calcul verifie).**
-### Option vanilla Black-Scholes
-- Famille: vanilla_option_black_scholes
+### Pricing Monte Carlo d'un call (GBM) avec intervalle de confiance
+- Famille: monte_carlo_gbm
 - Hypotheses controlees:
-  - Pas de dividende/carry si non precise.
-  - Volatilite et taux constants.
+  - GBM risque-neutre, 20,000 trajectoires, graine fixe (resultat reproductible).
+  - Tirages i.i.d. (graine fixe): l'erreur standard ci-dessous suppose des trajectoires independantes.
+  - Pas de dividende si non precise; vol et taux constants.
 - Calculs a respecter:
-  - d1/d2:
-    - Formule: BS d1, d2
-    - Application: d1=0.3500; d2=0.1500
-    - Resultat: d1=0.3500, d2=0.1500
-    - Lecture desk: Variables pivots du pricing et des greeks.
-  - Prix call:
+  - Simulation S_T:
+    - Formule: S_T = S0*exp((r-0.5*sigma^2)T + sigma*sqrt(T)*Z)
+    - Application: S0=100, drift=0.0300, diffusion=0.2000
+    - Resultat: 20,000 tirages
+    - Lecture desk: Echantillon de prix terminaux sous mesure risque-neutre.
+  - Prix MC:
+    - Formule: exp(-rT) * moyenne(max(S_T-K,0))
+    - Application: exp(-0.0500*1) * 11.0080
+    - Resultat: 10.4711
+    - Lecture desk: Estimateur du prix; converge en 1/sqrt(N).
+  - Erreur standard:
+    - Formule: exp(-rT)*ecart-type(payoff)/sqrt(N)
+    - Application: 0.9512*15.5533/sqrt(20000)
+    - Resultat: 0.1046
+    - Lecture desk: Precision de l'estimateur; diminue en 1/sqrt(N).
+  - IC 95%:
+    - Formule: Prix +/- 1.96 * SE
+    - Application: 10.4711 +/- 0.2050
+    - Resultat: [10.2661; 10.6761]
+    - Lecture desk: L'intervalle doit contenir le prix Black-Scholes ferme.
+  - Reference Black-Scholes:
     - Formule: S*N(d1)-K*exp(-rT)*N(d2)
-    - Application: 100*N(0.3500)-100*exp(-0.0500*1)*N(0.1500)
+    - Application: controle ferme
     - Resultat: 10.4506
-    - Lecture desk: Valeur theorique du call.
-  - Greeks:
-    - Formule: Delta=N(d1); Gamma=phi(d1)/(S sigma sqrt(T)); Vega=S phi(d1) sqrt(T)/100
-    - Application: inputs S=100, sigma=20.00%, T=1
-    - Resultat: Delta=0.6368; Gamma=0.018762; Vega/vol pt=0.3752
-    - Lecture desk: Base du hedge delta/vega.
+    - Lecture desk: Benchmark analytique: le MC doit tomber dans l'IC.
 - Actions operationnelles attendues:
-  - Comparer prix modele et prix marche.
-  - Hedger delta puis surveiller vega/gamma.
+  - Augmenter N pour resserrer l'IC (cout en 1/sqrt(N)).
+  - Utiliser antithetiques/variables de controle pour reduire la variance a cout egal.
+  - Verifier que le prix ferme tombe dans l'IC: sinon, biais d'implementation.
+- Points de vigilance:
+  - Un IC etroit ne corrige pas un biais de modele (drift, discretisation, payoff path-dependent).
 
 ## Mini-quiz
 _[genere]_ Mini-quiz de verification (5 questions).

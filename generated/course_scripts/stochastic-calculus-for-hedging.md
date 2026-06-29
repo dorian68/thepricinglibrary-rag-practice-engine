@@ -130,6 +130,25 @@ Un piège fréquent pour un junior est de négliger l'impact des frais de transa
 - Corrige detaille.
 - Quiz de verification rapide.
 
+## Fondements theoriques (ancres sources)
+_[genere - theorie, formules verifiees par un professionnel]_
+
+**Lemme d'Ito.** Pour $X_t$ avec $dX_t=\mu\,dt+\sigma\,dW_t$ et $f$ reguliere,
+$$df(X_t) = \Big(f' \mu + \tfrac12 f'' \sigma^2\Big)dt + f'\sigma\,dW_t,$$
+le terme du second ordre venant de la variation quadratique $(dW_t)^2 = dt$.
+
+**Theoreme de Girsanov.** Un changement de mesure $\mathbb{P}\to\mathbb{Q}$ via la derivee de Radon-Nikodym translate le drift: $d\tilde{W}_t = dW_t + \theta_t\,dt$ est un $\mathbb{Q}$-brownien. Avec $\theta=(\mu-r)/\sigma$ (prix de marche du risque), le drift du sous-jacent devient $r$: c'est la **mesure risque-neutre**.
+
+**Feynman-Kac.** La solution de l'EDP $\partial_t u + \mathcal{L}u - ru = 0$, $u(T,\cdot)=g$, admet la representation probabiliste
+$$u(t,x) = \mathbb{E}\big[e^{-r(T-t)} g(X_T)\,\big|\,X_t=x\big],$$
+pont entre EDP (Black-Scholes) et esperance (pricing risque-neutre).
+
+**Intuition rigoureuse.** Le terme $\tfrac12 f''\sigma^2\,dt$ d'Ito est *exactement* le gamma de l'attribution de P&L: la finance de marche est du calcul d'Ito applique.
+
+**Piege theorique.** $(dW)^2=dt$ n'est pas une heuristique: c'est la variation quadratique non nulle qui distingue le calcul stochastique du calcul classique (ou $(dt)^2\to0$).
+
+**References (corpus).** Joshi, *Concepts and Practice* (Ito, eq. 5.24); Neftci, *An Introduction to the Mathematics of Financial Derivatives* (Feynman-Kac); Baxter & Rennie, *Financial Calculus* (Cameron-Martin-Girsanov, §3.4).
+
 ## Exemple numerique resolu
 _[genere - calcul verifie]_ On price un call europeen a la monnaie et on lit prix, d1, d2 et greeks.
 
@@ -138,8 +157,8 @@ _[genere - calcul verifie]_ On price un call europeen a la monnaie et on lit pri
 ### Option vanilla Black-Scholes
 - Famille: vanilla_option_black_scholes
 - Hypotheses controlees:
-  - Pas de dividende/carry si non precise.
-  - Volatilite et taux constants.
+  - Pas de dividende ni de carry si non precise (sinon remplacer S par S*exp(-qT) dans d1 et le prix).
+  - Volatilite et taux constants; exercice europeen.
 - Calculs a respecter:
   - d1/d2:
     - Formule: BS d1, d2
@@ -151,14 +170,25 @@ _[genere - calcul verifie]_ On price un call europeen a la monnaie et on lit pri
     - Application: 100*N(0.3500)-100*exp(-0.0500*1)*N(0.1500)
     - Resultat: 10.4506
     - Lecture desk: Valeur theorique du call.
+  - Prix put:
+    - Formule: K*exp(-rT)*N(-d2)-S*N(-d1)
+    - Application: 100*exp(-0.0500*1)*N(-0.1500)-100*N(-0.3500)
+    - Resultat: 5.5735
+    - Lecture desk: Valeur theorique du put europeen de meme strike/maturite.
+  - Verification parite call-put:
+    - Formule: C - P = S - K*exp(-rT)
+    - Application: 10.4506 - 5.5735 = 100 - 95.1229
+    - Resultat: 4.8771 = 4.8771
+    - Lecture desk: Si les deux cotes ne collent pas, une quote est incoherente / arbitrable.
   - Greeks:
     - Formule: Delta=N(d1); Gamma=phi(d1)/(S sigma sqrt(T)); Vega=S phi(d1) sqrt(T)/100
     - Application: inputs S=100, sigma=20.00%, T=1
     - Resultat: Delta=0.6368; Gamma=0.018762; Vega/vol pt=0.3752
-    - Lecture desk: Base du hedge delta/vega.
+    - Lecture desk: Base du hedge delta/vega; delta du put = delta call - 1.
 - Actions operationnelles attendues:
   - Comparer prix modele et prix marche.
   - Hedger delta puis surveiller vega/gamma.
+  - Verifier la parite call-put avant de coter les deux jambes.
 
 **Lecture finale.** Chaque chiffre ci-dessus a une unite explicite et un sens economique; un apprenant doit pouvoir refaire le calcul a la main et retrouver le meme ordre de grandeur.
 
@@ -175,8 +205,8 @@ _[genere]_ Spot 100, strike 100, vol 20%, T=1, r=5%. Calculez d1, d2, le prix du
 ### Option vanilla Black-Scholes
 - Famille: vanilla_option_black_scholes
 - Hypotheses controlees:
-  - Pas de dividende/carry si non precise.
-  - Volatilite et taux constants.
+  - Pas de dividende ni de carry si non precise (sinon remplacer S par S*exp(-qT) dans d1 et le prix).
+  - Volatilite et taux constants; exercice europeen.
 - Calculs a respecter:
   - d1/d2:
     - Formule: BS d1, d2
@@ -188,14 +218,25 @@ _[genere]_ Spot 100, strike 100, vol 20%, T=1, r=5%. Calculez d1, d2, le prix du
     - Application: 100*N(0.3500)-100*exp(-0.0500*1)*N(0.1500)
     - Resultat: 10.4506
     - Lecture desk: Valeur theorique du call.
+  - Prix put:
+    - Formule: K*exp(-rT)*N(-d2)-S*N(-d1)
+    - Application: 100*exp(-0.0500*1)*N(-0.1500)-100*N(-0.3500)
+    - Resultat: 5.5735
+    - Lecture desk: Valeur theorique du put europeen de meme strike/maturite.
+  - Verification parite call-put:
+    - Formule: C - P = S - K*exp(-rT)
+    - Application: 10.4506 - 5.5735 = 100 - 95.1229
+    - Resultat: 4.8771 = 4.8771
+    - Lecture desk: Si les deux cotes ne collent pas, une quote est incoherente / arbitrable.
   - Greeks:
     - Formule: Delta=N(d1); Gamma=phi(d1)/(S sigma sqrt(T)); Vega=S phi(d1) sqrt(T)/100
     - Application: inputs S=100, sigma=20.00%, T=1
     - Resultat: Delta=0.6368; Gamma=0.018762; Vega/vol pt=0.3752
-    - Lecture desk: Base du hedge delta/vega.
+    - Lecture desk: Base du hedge delta/vega; delta du put = delta call - 1.
 - Actions operationnelles attendues:
   - Comparer prix modele et prix marche.
   - Hedger delta puis surveiller vega/gamma.
+  - Verifier la parite call-put avant de coter les deux jambes.
 
 ## Mini-quiz
 _[genere]_ Mini-quiz de verification (5 questions).

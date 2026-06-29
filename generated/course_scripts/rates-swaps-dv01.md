@@ -144,6 +144,25 @@ Un piège courant pour un junior est de négliger l'impact du délai de paiement
 - Corrige detaille.
 - Quiz de verification rapide.
 
+## Fondements theoriques (ancres sources)
+_[genere - theorie, formules verifiees par un professionnel]_
+
+**Definition.** Un swap de taux echange une jambe fixe (coupon $K$) contre une jambe flottante. Sa valeur (point de vue payeur fixe) est
+$$V = N\sum_{i=1}^{n}\tau_i DF(t_i)\,\big(f_i - K\big),$$
+avec $\tau_i$ les fractions d'annee, $DF(t_i)$ les discount factors et $f_i$ les forwards.
+
+**Taux swap par (mid-market).** Le taux qui annule la valeur:
+$$s = \frac{1 - DF(t_n)}{\sum_{i=1}^{n}\tau_i DF(t_i)} = \frac{1-DF_n}{A_n},$$
+ou $A_n=\sum \tau_i DF_i$ est l'**annuite** (PV01 de la jambe fixe).
+
+**Sensibilite (DV01).** $\text{DV01} = \dfrac{\partial V}{\partial(\text{1bp})} \approx A_n \cdot N \cdot 10^{-4}$ (approximation du 1er ordre, annuite $A_n$ figee). Un payeur gagne quand les taux montent.
+
+**Intuition rigoureuse.** Un swap au par vaut zero a l'initiation: $K=s \Rightarrow V=0$. Toute la valeur ulterieure vient de l'ecart $(s_t-K)$ actualise sur l'annuite — d'ou le role central de $A_n$.
+
+**Piege theorique.** Mono-courbe ici par simplicite; en production on **actualise sur OIS** et on projette les forwards sur la courbe IBOR/€STR (multi-courbe). Confondre les deux fausse le DV01.
+
+**References (corpus).** *Interest Rate Derivatives Explained Vol. 1* (taux swap, eq. 5.2); Flavell, *Swaps and Other Derivatives* (valorisation, value=0 au par); *Pricing and Hedging Financial Derivatives*.
+
 ## Exemple numerique resolu
 _[genere - calcul verifie]_ On valorise un payer swap et on mesure sa sensibilite a la courbe.
 

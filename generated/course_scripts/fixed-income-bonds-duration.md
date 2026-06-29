@@ -128,114 +128,118 @@ Un piège courant pour un junior est de croire que la convexité n'est pertinent
 - Corrige detaille.
 - Quiz de verification rapide.
 
+## Fondements theoriques (ancres sources)
+_[genere - theorie, formules verifiees par un professionnel]_
+
+**Prix et rendement.** Pour une obligation a coupon $C$, nominal $F$, rendement $y$:
+$$P = \sum_{t=1}^{n}\frac{C}{(1+y)^t} + \frac{F}{(1+y)^n}.$$
+
+**Duration et convexite.**
+$$D_{Mac} = \frac{1}{P}\sum_{t} t\,\frac{CF_t}{(1+y)^t},\qquad D^* = \frac{D_{Mac}}{1+y},\qquad Cx = \frac{1}{P}\sum_t \frac{t(t+1)\,CF_t}{(1+y)^{t+2}}.$$
+
+**Approximation prix (2e ordre).**
+$$\frac{\Delta P}{P} \approx -D^*\,\Delta y + \tfrac12 Cx\,(\Delta y)^2,\qquad \text{DV01} = D^* \cdot P \cdot 10^{-4}.$$
+
+**Intuition rigoureuse.** La duration est l'echeance moyenne ponderee des cash-flows et la pente locale prix/taux; la convexite ($Cx>0$ pour une obligation classique) est un *ami*: elle amortit les hausses de taux et amplifie les baisses. Elle vaut d'autant plus que la volatilite des taux est elevee.
+
+**Piege theorique.** La seule duration sous-estime la perte pour de gros chocs et ignore les variations de pente/forme de courbe (risque de *key-rate duration*).
+
+**References (corpus).** Fabozzi, *Foundations of Financial Markets and Institutions* (YTM, exemple chiffre); FRM Handbook (Jorion) (duration modifiee vs Macaulay); *Mathematics of the Financial Markets* (convexite, §3.2.3).
+
 ## Exemple numerique resolu
-_[genere - calcul verifie]_ On valorise un payer swap et on mesure sa sensibilite a la courbe.
+_[genere - calcul verifie]_ On convertit la duration en risque EUR/bp et en P&L de choc.
 
-**Donnees.** Payer swap EUR notionnel 100m fixed coupon 3.20% par swap rate 3.00% annuity 4.55, la courbe monte de 10bp.
+**Donnees.** Bond notionnel 50m duration 6.2 le taux monte de 25bp.
 
-### PV/DV01 de swap de taux
-- Famille: rates_swap_dv01
+### DV01 et P&L obligataire
+- Famille: bond_duration_dv01
 - Hypotheses controlees:
-  - Approximation mono-courbe et parallel shift.
-  - Annuite fournie par le prompt, pas recalibree.
-  - Signe exprime du point de vue payer fixe / receiver flottant.
+  - Approximation duration lineaire.
+  - Prix clean/dirty ignore si non precise.
 - Calculs a respecter:
-  - DV01:
-    - Formule: Annuite * Notionnel * 1bp
-    - Application: 4.55 * 100,000,000 * 0.0001
-    - Resultat: 45,500 EUR/bp
-    - Lecture desk: Sensibilite lineaire de la position a un bp de courbe.
-  - PV payer approx:
-    - Formule: (Par rate - Fixed coupon) * Annuite * Notionnel
-    - Application: (3% - 3.2%) * 4.55 * 100,000,000
-    - Resultat: -910,000 EUR
-    - Lecture desk: Un payer au-dessus du par rate est initialement hors-la-monnaie.
+  - DV01 obligation:
+    - Formule: Duration * Notionnel * 1bp
+    - Application: 6.2 * 50,000,000 * 0.0001
+    - Resultat: 31,000 EUR/bp
+    - Lecture desk: Sensibilite taux de premier ordre.
   - P&L shock taux:
-    - Formule: DV01 * shock bp pour un payer
-    - Application: 45,500 * 10
-    - Resultat: 455,000 EUR
-    - Lecture desk: Un payer gagne quand les taux montent, perd quand ils baissent.
+    - Formule: -DV01 * shock bp
+    - Application: -31,000 * 25
+    - Resultat: -775,000 EUR
+    - Lecture desk: Un long bond perd quand les taux montent.
 - Actions operationnelles attendues:
-  - Comparer le signe de PV avec le sens payer/receiver.
-  - Hedger DV01 avec swap oppose, futures taux ou bond hedge selon le book.
-  - Expliquer le basis risk si la couverture n'est pas sur le meme tenor.
+  - Hedger duration avec futures, swap ou bond benchmark.
+  - Verifier convexite si le choc est large.
 
 **Lecture finale.** Chaque chiffre ci-dessus a une unite explicite et un sens economique; un apprenant doit pouvoir refaire le calcul a la main et retrouver le meme ordre de grandeur.
 
 ## Exercices corriges
 ### Exercice 1 - application directe
-_[genere]_ Un payer swap a un fixed coupon au-dessus du par rate. Sa PV initiale est-elle positive ou negative pour le payer?
+_[genere]_ Une obligation a une duration de 6. Les taux montent de 25bp. Le prix monte ou baisse, et d'environ combien en %?
 
-**Correction.** Negative: payer un coupon superieur au marche est desavantageux, donc PV(payer) = (par - fixed) * annuite * notionnel < 0.
+**Correction.** Le prix baisse d'environ duration * choc = 6 * 0.25% = 1.5%. Relation prix/taux inverse.
 
 ### Exercice 2 - niveau desk
-_[genere]_ Payer swap EUR 100m, fixed 3.20%, par 3.00%, annuite 4.55. Courbe +10bp. Calculez PV, DV01 et P&L.
+_[genere]_ Bond 50m, duration 6.2, +25bp. Calculez DV01 et P&L, puis dites quand l'approximation duration devient insuffisante.
 
 **Correction detaillee (calcul verifie).**
-### PV/DV01 de swap de taux
-- Famille: rates_swap_dv01
+### DV01 et P&L obligataire
+- Famille: bond_duration_dv01
 - Hypotheses controlees:
-  - Approximation mono-courbe et parallel shift.
-  - Annuite fournie par le prompt, pas recalibree.
-  - Signe exprime du point de vue payer fixe / receiver flottant.
+  - Approximation duration lineaire.
+  - Prix clean/dirty ignore si non precise.
 - Calculs a respecter:
-  - DV01:
-    - Formule: Annuite * Notionnel * 1bp
-    - Application: 4.55 * 100,000,000 * 0.0001
-    - Resultat: 45,500 EUR/bp
-    - Lecture desk: Sensibilite lineaire de la position a un bp de courbe.
-  - PV payer approx:
-    - Formule: (Par rate - Fixed coupon) * Annuite * Notionnel
-    - Application: (3% - 3.2%) * 4.55 * 100,000,000
-    - Resultat: -910,000 EUR
-    - Lecture desk: Un payer au-dessus du par rate est initialement hors-la-monnaie.
+  - DV01 obligation:
+    - Formule: Duration * Notionnel * 1bp
+    - Application: 6.2 * 50,000,000 * 0.0001
+    - Resultat: 31,000 EUR/bp
+    - Lecture desk: Sensibilite taux de premier ordre.
   - P&L shock taux:
-    - Formule: DV01 * shock bp pour un payer
-    - Application: 45,500 * 10
-    - Resultat: 455,000 EUR
-    - Lecture desk: Un payer gagne quand les taux montent, perd quand ils baissent.
+    - Formule: -DV01 * shock bp
+    - Application: -31,000 * 25
+    - Resultat: -775,000 EUR
+    - Lecture desk: Un long bond perd quand les taux montent.
 - Actions operationnelles attendues:
-  - Comparer le signe de PV avec le sens payer/receiver.
-  - Hedger DV01 avec swap oppose, futures taux ou bond hedge selon le book.
-  - Expliquer le basis risk si la couverture n'est pas sur le meme tenor.
+  - Hedger duration avec futures, swap ou bond benchmark.
+  - Verifier convexite si le choc est large.
 
 ## Mini-quiz
 _[genere]_ Mini-quiz de verification (5 questions).
 
-**Q1. Le DV01 d'un swap mesure:**
-- A) le P&L pour 1bp de courbe
-- B) le coupon fixe
+**Q1. Le DV01 d'une obligation mesure:**
+- A) le P&L pour 1bp de rendement
+- B) le coupon
 - C) la prime d'option
 - D) le spread de credit
-  - Reponse: **A**. DV01 = annuite * notionnel * 1bp: sensibilite lineaire a la courbe.
+  - Reponse: **A**. DV01 = D_mod * prix * 1bp: sensibilite lineaire de premier ordre au rendement.
 
-**Q2. Un payer swap gagne quand:**
-- A) les taux baissent
-- B) les taux montent
-- C) la vol monte
-- D) le spread s'ecarte
-  - Reponse: **B**. Le payer recoit le flottant: il profite d'une hausse des taux.
+**Q2. Quand les taux montent, le prix d'une obligation:**
+- A) monte
+- B) baisse
+- C) ne bouge pas
+- D) double
+  - Reponse: **B**. Relation prix/rendement inverse: un long bond perd quand les taux montent.
 
-**Q3. La PV d'un payer dont le coupon = par rate est:**
-- A) fortement positive
-- B) proche de zero
-- C) fortement negative
+**Q3. Pour un choc de taux large, la duration seule:**
+- A) surestime toujours le prix
+- B) sous-estime le prix (ignore la convexite positive)
+- C) est exacte
+- D) n'a aucun effet
+  - Reponse: **B**. La convexite positive amortit la perte; la duration seule sous-estime le prix apres choc.
+
+**Q4. La convexite d'une obligation classique est:**
+- A) negative
+- B) positive (un ami)
+- C) nulle
 - D) indeterminee
-  - Reponse: **B**. Au par, fixed = par rate => PV ~ 0 a l'initiation.
+  - Reponse: **B**. C > 0: elle attenue les hausses de taux et amplifie les baisses.
 
-**Q4. Le basis risk d'un hedge swap vient surtout de:**
-- A) un mismatch de tenor/index
-- B) la couleur de l'ecran
-- C) le notionnel
-- D) le jour de la semaine
-  - Reponse: **A**. Couvrir avec un tenor/index different laisse un risque de base residuel.
-
-**Q5. Annuite elevee => DV01:**
+**Q5. Duration modifiee elevee => DV01:**
 - A) plus faible
 - B) plus eleve
 - C) inchange
 - D) negatif
-  - Reponse: **B**. DV01 croit avec l'annuite (et le notionnel).
+  - Reponse: **B**. DV01 croit avec la duration modifiee (et le prix/notionnel).
 
 ## Resume
 - L'intuition d'abord: comprendre le probleme de marche avant la formule.

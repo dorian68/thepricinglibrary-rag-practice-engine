@@ -1,0 +1,16 @@
+{
+  "trend_following:GOLD:pipeline": {
+    "universe": "trend_following:GOLD:pipeline",
+    "start": "2023-11-28",
+    "end": "2026-06-26",
+    "sealed_at": "2026-06-29T01:07:16.248761+00:00",
+    "consumed_at": "2026-06-29T01:07:16.303993+00:00",
+    "config_hash": "e5a6cb8db432",
+    "result": {
+      "lockbox_sharpe": 0.11687460658969633,
+      "n_obs": 647,
+      "trades": 36.0,
+      "return_pct": 25.99180729479552
+    }
+  }
+}

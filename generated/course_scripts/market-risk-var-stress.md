@@ -125,27 +125,52 @@ Sur un desk de trading, la rapidité de la décision est essentielle. Ignorer un
 - Corrige detaille.
 - Quiz de verification rapide.
 
+## Fondements theoriques (ancres sources)
+_[genere - theorie, formules verifiees par un professionnel]_
+
+**Definition.** La VaR de niveau $\alpha$ sur l'horizon $h$ est le quantile de perte: $\mathbb{P}(L > \text{VaR}_\alpha)=1-\alpha$. En parametrique gaussien (moyenne nulle):
+$$\text{VaR}_\alpha = z_\alpha\,\sigma\sqrt{h}\,V,\qquad z_\alpha = \Phi^{-1}(\alpha).$$
+
+**Expected Shortfall (CVaR).** Perte moyenne au-dela de la VaR:
+$$\text{ES}_\alpha = \mathbb{E}[L\,|\,L>\text{VaR}_\alpha] = \sigma\sqrt{h}\,V\,\frac{\varphi(z_\alpha)}{1-\alpha} \;\ge\; \text{VaR}_\alpha.$$
+
+**Axiomes de coherence (Artzner et al.).** monotonicite, invariance par translation, homogeneite positive, **sous-additivite**. La VaR viole la sous-additivite en general (un risque diversifie peut afficher une VaR superieure a la somme); l'**ES est coherente**.
+
+**Backtesting (Kupiec POF).** Test du ratio de vraisemblance comparant le taux d'exceptions observe $\hat{p}=N/n$ au taux theorique $p=1-\alpha$: $LR_{POF}=-2\ln\frac{(1-p)^{n-N}p^{N}}{(1-\hat p)^{n-N}\hat p^{N}}\sim \chi^2_1$.
+
+**Piege theorique.** La VaR ne dit **rien** de l'ampleur des pertes au-dela du seuil et sous-estime les queues epaisses; d'ou l'ES et les stress tests en complement (Bale FRTB privilegie l'ES 97.5%).
+
+**References (corpus).** FRM Handbook (Jorion) (ES = CVaR); *Encyclopedia of Quantitative Finance* (axiomes de coherence); Wilmott, *FAQs in Quantitative Finance* (contre-exemple sous-additivite); *Mathematics of the Financial Markets* (test de Kupiec).
+
 ## Exemple numerique resolu
 _[genere - calcul verifie]_ On calcule une VaR parametrique simple et on la compare a une limite.
 
 **Donnees.** VaR parametrique: portefeuille 20m volatilite 2% confiance 95% horizon 1 jour.
 
-### VaR parametrique simple
+### VaR et Expected Shortfall parametriques
 - Famille: parametric_var
 - Hypotheses controlees:
-  - Quantile normal z=1.65.
-  - Volatilite donnee sur le meme pas de temps que l'horizon, sauf indication contraire.
+  - Quantile normal exact z=1.6449 pour une confiance de 95%.
+  - Rendements gaussiens de moyenne nulle sur l'horizon.
+  - Volatilite exprimee sur le meme pas de temps que l'horizon (sinon mise a l'echelle en sqrt(horizon)).
 - Calculs a respecter:
   - VaR:
-    - Formule: Valeur * vol * sqrt(horizon) * z
-    - Application: 20,000,000 * 0.0200 * sqrt(1) * 1.65
-    - Resultat: 660,000
-    - Lecture desk: Perte potentielle au niveau de confiance choisi.
+    - Formule: Valeur * vol * sqrt(horizon) * z(alpha)
+    - Application: 20,000,000 * 0.0200 * sqrt(1) * 1.6449
+    - Resultat: 657,941
+    - Lecture desk: Perte seuil non depassee avec une probabilite alpha.
+  - Expected Shortfall:
+    - Formule: Valeur * vol * sqrt(horizon) * phi(z)/(1-alpha)
+    - Application: 20,000,000 * 0.0200 * sqrt(1) * 0.1031/0.0500
+    - Resultat: 825,085
+    - Lecture desk: Perte moyenne CONDITIONNELLE au-dela de la VaR; toujours >= VaR.
 - Actions operationnelles attendues:
-  - Comparer VaR et stress tests.
-  - Identifier les facteurs dominants du risque.
+  - Comparer VaR et Expected Shortfall a la limite et aux stress tests.
+  - Si l'ES est tres au-dessus de la VaR, la queue est lourde: prioriser les stress scenarios.
+  - Identifier les facteurs dominants du risque avant de reduire.
 - Points de vigilance:
-  - La VaR ne capture pas correctement les queues extremes ni les risques de gap.
+  - La VaR parametrique sous-estime les queues epaisses et ignore le gap risk.
+  - La VaR n'est pas sous-additive en general: agreger des VaR par desk peut sous-estimer le risque; l'Expected Shortfall, lui, est coherent (sous-additif).
 
 **Lecture finale.** Chaque chiffre ci-dessus a une unite explicite et un sens economique; un apprenant doit pouvoir refaire le calcul a la main et retrouver le meme ordre de grandeur.
 
@@ -159,22 +184,30 @@ _[genere]_ Une VaR 95% 1 jour de 660k signifie quoi exactement?
 _[genere]_ Portefeuille 20m, vol 2%/jour, 95%, 1 jour. Calculez la VaR et comparez a une limite de 500k.
 
 **Correction detaillee (calcul verifie).**
-### VaR parametrique simple
+### VaR et Expected Shortfall parametriques
 - Famille: parametric_var
 - Hypotheses controlees:
-  - Quantile normal z=1.65.
-  - Volatilite donnee sur le meme pas de temps que l'horizon, sauf indication contraire.
+  - Quantile normal exact z=1.6449 pour une confiance de 95%.
+  - Rendements gaussiens de moyenne nulle sur l'horizon.
+  - Volatilite exprimee sur le meme pas de temps que l'horizon (sinon mise a l'echelle en sqrt(horizon)).
 - Calculs a respecter:
   - VaR:
-    - Formule: Valeur * vol * sqrt(horizon) * z
-    - Application: 20,000,000 * 0.0200 * sqrt(1) * 1.65
-    - Resultat: 660,000
-    - Lecture desk: Perte potentielle au niveau de confiance choisi.
+    - Formule: Valeur * vol * sqrt(horizon) * z(alpha)
+    - Application: 20,000,000 * 0.0200 * sqrt(1) * 1.6449
+    - Resultat: 657,941
+    - Lecture desk: Perte seuil non depassee avec une probabilite alpha.
+  - Expected Shortfall:
+    - Formule: Valeur * vol * sqrt(horizon) * phi(z)/(1-alpha)
+    - Application: 20,000,000 * 0.0200 * sqrt(1) * 0.1031/0.0500
+    - Resultat: 825,085
+    - Lecture desk: Perte moyenne CONDITIONNELLE au-dela de la VaR; toujours >= VaR.
 - Actions operationnelles attendues:
-  - Comparer VaR et stress tests.
-  - Identifier les facteurs dominants du risque.
+  - Comparer VaR et Expected Shortfall a la limite et aux stress tests.
+  - Si l'ES est tres au-dessus de la VaR, la queue est lourde: prioriser les stress scenarios.
+  - Identifier les facteurs dominants du risque avant de reduire.
 - Points de vigilance:
-  - La VaR ne capture pas correctement les queues extremes ni les risques de gap.
+  - La VaR parametrique sous-estime les queues epaisses et ignore le gap risk.
+  - La VaR n'est pas sous-additive en general: agreger des VaR par desk peut sous-estimer le risque; l'Expected Shortfall, lui, est coherent (sous-additif).
 
 ## Mini-quiz
 _[genere]_ Mini-quiz de verification (5 questions).

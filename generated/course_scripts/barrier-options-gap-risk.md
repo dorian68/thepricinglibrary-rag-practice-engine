@@ -140,6 +140,25 @@ Un piège fréquent pour les juniors est de supposer que le prix donné par le m
 - Corrige detaille.
 - Quiz de verification rapide.
 
+## Fondements theoriques (ancres sources)
+_[genere - theorie, formules verifiees par un professionnel]_
+
+**Taxonomie.** Knock-out (s'eteint si la barriere est touchee) vs knock-in (nait a ce moment); up/down selon le sens. Le payoff depend du strike **et** du chemin.
+
+**Parite in-out (modele-independante).**
+$$C_{KI} + C_{KO} = C_{vanilla}\quad\text{(memes strike/maturite/barriere-sens).}$$
+Detenir le knock-in et le knock-out equivaut a detenir le vanilla.
+
+**Forme fermee (down-and-out call, monitoring continu, principe de reflexion).** Avec barriere $B<K$:
+$$C_{DO} = C_{BS}(S_0) - \left(\frac{B}{S_0}\right)^{2\lambda-2} C_{BS}\!\left(\frac{B^2}{S_0}\right),\quad \lambda=\frac{r-q+\tfrac12\sigma^2}{\sigma^2},$$
+l'image $B^2/S_0$ etant le sous-jacent "reflechi" sur la barriere.
+
+**Monitoring discret (correction Broadie-Glasserman-Kou).** Une barriere observee a pas $\Delta t$ se price comme une barriere continue **decalee** $B \to B\,e^{\pm \beta\sigma\sqrt{\Delta t}}$, $\beta\approx 0.5826$ ($+$ pour up, $-$ pour down).
+
+**Piege theorique.** Pres de la barriere, delta et gamma explosent (discontinuite de payoff): le hedge delta continu peut echouer sur un **gap**. Le risque dominant n'est pas un grec lisse mais le franchissement.
+
+**References (corpus).** *Principles of Financial Engineering* (equation contractuelle in-out, §11.4.2); *Derivatives Models on Models* (arbre + principe de reflexion); *FX Derivatives Trader School* (reverse KO ↔ one-touch, gap).
+
 ## Exemple numerique resolu
 _[genere - calcul verifie]_ On calcule le payoff conditionnel et on discute le gap risk.
 

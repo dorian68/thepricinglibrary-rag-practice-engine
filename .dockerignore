@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.pytest_tmp/
+.pytest_cache/
+data/
+generated*/
+QUANTITATIVE_FINANCE/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+.env
+.venv/
+venv/
+tests/
+reports/
+*.md
+!scripts/_PROMOTE.md

@@ -1,0 +1,46 @@
+{
+  "course": "options-book-greeks-pnl",
+  "generated_by": "course-authoring rewrite 2026-06-28",
+  "engine_verified": true,
+  "uiblocks": [
+    {
+      "id": "greeks_scenario_hook",
+      "type": "greeks_scenario",
+      "title": "Live Delta-Gamma-Vega-Theta scenario P&L (le book du hook)",
+      "section": "0. Hook",
+      "params": { "delta": 250000, "gamma": -80000, "vega": 120000, "theta": -15000, "dSpotPct": -2, "dVolPts": 3, "dDays": 1, "ccy": "EUR" },
+      "expected_total_eur": -315000,
+      "note": "Buckets: delta -500000, gamma -160000, vega +360000, theta -15000."
+    },
+    {
+      "id": "payoff_call_atm",
+      "type": "payoff",
+      "title": "Payoff & delta d'un call ATM",
+      "section": "2.2 Greeks closed form",
+      "params": { "instrument": "call", "S": 100, "K": 100, "sigma": 20, "r": 2, "q": 0, "T_days": 90, "show": ["payoff", "price", "delta"] },
+      "note": "Le lissage de la pente = delta; sa courbure = gamma. Engine: call 4.2015, delta 0.5396, gamma 0.039973."
+    },
+    {
+      "id": "price_chart_aapl",
+      "type": "price_chart",
+      "title": "AAPL - spot et vol realisee glissante (donnees reelles)",
+      "section": "3.2 Ancrage marche reel",
+      "params": { "provider": "us_stocks", "symbol": "AAPL", "window_days": 252, "overlays": ["close", "realized_vol_21d"], "last_close": 220.78, "realized_vol_21d_pct": 20.1 },
+      "data_source": "data/market_history/us_stocks/AAPL.csv"
+    },
+    {
+      "id": "scenario_table_book",
+      "type": "scenario_table",
+      "title": "Stress P&L du book - grille spot x vol",
+      "section": "3.3 Attribution du book",
+      "params": { "delta": 250000, "gamma": -80000, "vega": 120000, "theta": -15000, "spot_shocks_pct": [-5, -2, -1, 0, 1, 2, 5], "vol_shocks_pts": [-3, 0, 1, 3, 5], "horizon_days": 1, "ccy": "EUR" }
+    },
+    {
+      "id": "vol_smile_vega_decomp",
+      "type": "vol_smile",
+      "title": "Smile de vol et decomposition du vega (ATM / skew / convexite)",
+      "section": "4.4 Vega le long du smile",
+      "params": { "atm_vol": 20, "skew_per_10pct": -3.0, "curvature": 0.8, "strikes_pct": [80, 90, 95, 100, 105, 110, 120], "maturity_days": 90 }
+    }
+  ]
+}
