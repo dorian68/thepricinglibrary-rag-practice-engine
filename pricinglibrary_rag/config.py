@@ -53,6 +53,10 @@ class Settings:
     chunk_target_chars: int
     chunk_overlap_chars: int
     max_context_chunks: int
+    # --- public-deployment guards (defaulted so local callers keep working) --
+    cors_origins: tuple[str, ...] = ()
+    api_key: str | None = None
+    rate_limit_per_min: int = 0
     # --- billing (Stripe) — defaulted so existing callers keep working ----
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
@@ -94,6 +98,13 @@ class Settings:
             chunk_target_chars=int(os.environ.get("TPL_CHUNK_TARGET_CHARS", "2600")),
             chunk_overlap_chars=int(os.environ.get("TPL_CHUNK_OVERLAP_CHARS", "350")),
             max_context_chunks=int(os.environ.get("TPL_MAX_CONTEXT_CHUNKS", "8")),
+            cors_origins=tuple(
+                o.strip()
+                for o in os.environ.get("TPL_CORS_ORIGINS", "").split(",")
+                if o.strip()
+            ),
+            api_key=os.environ.get("TPL_API_KEY") or None,
+            rate_limit_per_min=int(os.environ.get("TPL_RATE_LIMIT_PER_MIN", "0")),
             stripe_secret_key=os.environ.get("STRIPE_SECRET_KEY") or os.environ.get("TPL_STRIPE_SECRET_KEY"),
             stripe_webhook_secret=os.environ.get("STRIPE_WEBHOOK_SECRET") or os.environ.get("TPL_STRIPE_WEBHOOK_SECRET"),
             stripe_prices={

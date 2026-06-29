@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, Request
+import time
+from collections import deque
+
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
@@ -121,12 +124,42 @@ def create_app(services: Services | None = None) -> FastAPI:
     )
     app.add_middleware(
         CORSMiddleware,
+        # Localhost is always allowed (dev). Production origins (the Lovable
+        # frontend, custom domain) are added via TPL_CORS_ORIGINS.
+        allow_origins=list(services.settings.cors_origins),
         allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
     agent = PracticeAgent(services.generator)
+
+    # --- guard for the LLM-backed routes (/generate/*, /agent/*) ----------
+    # Public deployment protection: optional shared API key + in-memory
+    # per-IP sliding-window rate limit. Both are no-ops unless configured,
+    # so local/dev callers are unaffected.
+    _hits: dict[str, deque[float]] = {}
+
+    def guard_paid(
+        request: Request,
+        x_api_key: str | None = Header(default=None),
+    ) -> None:
+        cfg = services.settings
+        if cfg.api_key and x_api_key != cfg.api_key:
+            raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+        limit = cfg.rate_limit_per_min
+        if limit > 0:
+            ip = request.client.host if request.client else "unknown"
+            now = time.monotonic()
+            bucket = _hits.setdefault(ip, deque())
+            while bucket and now - bucket[0] > 60.0:
+                bucket.popleft()
+            if len(bucket) >= limit:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Rate limit exceeded. Please retry in a minute.",
+                )
+            bucket.append(now)
 
     @app.get("/health")
     def health() -> dict:
@@ -276,35 +309,55 @@ def create_app(services: Services | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.post("/generate/exercise", response_model=GenerationResponse)
+    @app.post(
+        "/generate/exercise",
+        response_model=GenerationResponse,
+        dependencies=[Depends(guard_paid)],
+    )
     def generate_exercise(request: ExerciseRequest) -> GenerationResponse:
         try:
             return services.generator.generate_exercise(request)
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.post("/agent/exercise", response_model=GenerationResponse)
+    @app.post(
+        "/agent/exercise",
+        response_model=GenerationResponse,
+        dependencies=[Depends(guard_paid)],
+    )
     def agent_exercise(request: ExerciseRequest) -> GenerationResponse:
         try:
             return agent.create_exercise(request)
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.post("/agent/course", response_model=GenerationResponse)
+    @app.post(
+        "/agent/course",
+        response_model=GenerationResponse,
+        dependencies=[Depends(guard_paid)],
+    )
     def agent_course(request: CourseRequest) -> GenerationResponse:
         try:
             return agent.create_course(request)
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.post("/generate/course", response_model=GenerationResponse)
+    @app.post(
+        "/generate/course",
+        response_model=GenerationResponse,
+        dependencies=[Depends(guard_paid)],
+    )
     def generate_course(request: CourseRequest) -> GenerationResponse:
         try:
             return services.generator.generate_course(request)
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.post("/generate/material-pack", response_model=GenerationResponse)
+    @app.post(
+        "/generate/material-pack",
+        response_model=GenerationResponse,
+        dependencies=[Depends(guard_paid)],
+    )
     def generate_material_pack(request: MaterialPackRequest) -> GenerationResponse:
         try:
             return services.generator.generate_material_pack(request)
@@ -312,7 +365,7 @@ def create_app(services: Services | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # --- AG-UI agentic assistant (SSE streaming) --------------------------
-    @app.post("/agent/ag-ui/run")
+    @app.post("/agent/ag-ui/run", dependencies=[Depends(guard_paid)])
     async def agent_ag_ui_run(request: Request) -> StreamingResponse:
         payload = await request.json()
 
@@ -359,7 +412,7 @@ def create_app(services: Services | None = None) -> FastAPI:
     # ===================== AGENTIC DESK (multi-agent trading room) ========
     desk = DeskOrchestrator(services.llm)
 
-    @app.post("/agent/desk/run")
+    @app.post("/agent/desk/run", dependencies=[Depends(guard_paid)])
     def desk_run(body: DeskBody) -> dict:
         return desk.run(body.query)
 
