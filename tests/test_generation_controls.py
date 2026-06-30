@@ -53,9 +53,9 @@ def test_barrier_controls_do_not_parse_initial_spot_as_barrier() -> None:
         ),
     )
     block = generator._numeric_control_block(request)
-    assert "max(1.05 - 1.1, 0) * 10,000,000" in block
+    assert "(1.05 - 1.1) x 10,000,000" in block
     assert "spot 1 <= barriere 1" in block
-    assert "1,000,000 USD approx" in block
+    assert "1,000,000 USD" in block
     assert "Distance initiale a la barriere: 8.00%" in block
 
 

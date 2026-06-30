@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import re
+from abc import ABC, abstractmethod
 from collections import Counter
 from dataclasses import dataclass
 
@@ -21,7 +22,55 @@ class RetrievedChunk:
     lexical_score: float
 
 
-class LocalRetriever:
+class BaseRetriever(ABC):
+    """Retrieval contract shared by every retriever.
+
+    A retriever turns a query into a ranked list of RetrievedChunk. Concrete
+    implementations decide how lexical and semantic signals are combined; the
+    rest of the pipeline (generation, search API) only depends on this surface.
+    """
+
+    mode: str = "base"
+
+    @abstractmethod
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 8,
+        *,
+        product: str | None = None,
+        concept: str | None = None,
+        asset_class: str | None = None,
+        tags: list[str] | None = None,
+        usable_only: bool = False,
+        min_quality: int | None = None,
+    ) -> list[RetrievedChunk]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def search(self, request: SearchRequest) -> SearchResponse:
+        raise NotImplementedError
+
+    @abstractmethod
+    def to_source_ref(self, item: RetrievedChunk) -> SourceRef:
+        raise NotImplementedError
+
+    def refresh(self) -> None:  # optional cache hook
+        return None
+
+
+class LocalRetriever(BaseRetriever):
+    """Hybrid lexical (BM25 + FTS5) + vector (embedding cosine) retriever.
+
+    This is the engine behind all three modes. The named retrievers below are
+    thin presets that only change the fusion weights; `build_retriever` selects
+    one from `RETRIEVAL_MODE`. The semantic quality of the vector side depends
+    entirely on the embedding backend that produced the stored chunk vectors
+    (see EMBEDDING_PROVIDER).
+    """
+
+    mode = "hybrid"
+
     def __init__(
         self,
         store: LocalStore,
@@ -278,3 +327,46 @@ class LocalRetriever:
         if "related articles" in lower and short_line_ratio > 0.35:
             score *= 0.55
         return max(0.05, min(score, 1.0))
+
+
+class HybridRetriever(LocalRetriever):
+    """Default: fuse lexical (BM25/FTS5) and vector (embedding) signals."""
+
+    mode = "hybrid"
+
+
+class LexicalRetriever(LocalRetriever):
+    """Keyword-only ranking (BM25 + FTS5). The offline-safe baseline: it never
+    needs a meaningful embedding space, so it works even with the hashing
+    fallback or an empty/ mismatched vector store."""
+
+    mode = "lexical"
+
+    def __init__(self, store: LocalStore, embeddings: EmbeddingBackend) -> None:
+        super().__init__(store, embeddings, vector_weight=0.0, lexical_weight=1.0)
+
+
+class SemanticRetriever(LocalRetriever):
+    """Embedding-cosine driven ranking. Only as good as the embedding backend
+    that produced the stored chunk vectors (set EMBEDDING_PROVIDER and re-ingest
+    for true neural semantics; with the hashing backend this stays lexical-ish)."""
+
+    mode = "semantic"
+
+    def __init__(self, store: LocalStore, embeddings: EmbeddingBackend) -> None:
+        super().__init__(store, embeddings, vector_weight=0.85, lexical_weight=0.15)
+
+
+def build_retriever(
+    mode: str,
+    store: LocalStore,
+    embeddings: EmbeddingBackend,
+) -> BaseRetriever:
+    """Pick a retriever from RETRIEVAL_MODE. Unknown values fall back to hybrid
+    so a typo never breaks the pipeline."""
+    normalized = (mode or "hybrid").strip().lower()
+    if normalized == "lexical":
+        return LexicalRetriever(store, embeddings)
+    if normalized == "semantic":
+        return SemanticRetriever(store, embeddings)
+    return HybridRetriever(store, embeddings)

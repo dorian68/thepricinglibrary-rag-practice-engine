@@ -18,7 +18,7 @@ from .course_blocks import (
     varied_scenario,
     worked_example_markdown,
 )
-from .llm import LocalLLM
+from .llm import LocalLLM, TemplateLLM
 from .pedagogy import (
     PEDAGOGICAL_FLOW,
     classify_chunk,
@@ -36,6 +36,7 @@ from .schemas import (
     SourceRef,
 )
 from .storage import LocalStore
+from .validation import validate_calculation_coherence, validate_generated_exercise
 from .text_utils import (
     clean_snippet,
     concise_snippet,
@@ -58,15 +59,21 @@ class GenerationContext:
 
 
 class MaterialGenerator:
+    # Class default so instances built via __new__ (in unit tests that only
+    # exercise calculators) still have the attribute.
+    strict_validation: bool = True
+
     def __init__(
         self,
         retriever: LocalRetriever,
         llm: LocalLLM,
         store: LocalStore | None = None,
+        strict_validation: bool = True,
     ) -> None:
         self.retriever = retriever
         self.llm = llm
         self.store = store
+        self.strict_validation = strict_validation
         self.calculator = PracticeCalculator()
 
     def generate_exercise(self, request: ExerciseRequest) -> GenerationResponse:
@@ -80,7 +87,11 @@ class MaterialGenerator:
             )
         )
         title = self._exercise_title(request)
-        draft = self._exercise_template(request, title, context)
+        pack, scenario = self._calculation_pack(request)
+        # Coherence gate: make the enonce show the scenario the answer key was
+        # actually computed from, so enonce and corrige never disagree.
+        coherence = validate_calculation_coherence(scenario, pack)
+        draft = self._exercise_template(request, title, context, pack, scenario)
         prompt = self._wrap_prompt(
             role="practical exercise designer",
             language=request.language,
@@ -93,18 +104,45 @@ class MaterialGenerator:
             draft=draft,
         )
         content = self.llm.generate(prompt, max_tokens=2600)
+
+        # Numeric guardrail: the LLM is only a writer. If a real LLM rewrite
+        # altered or dropped any calculated value, fall back to the deterministic
+        # template (strict) or keep it but flag it (lenient). The template path
+        # (pass-through) is trusted and skipped.
+        meta: dict = {
+            "llm": self.llm.name,
+            "query": context.query,
+            "difficulty": request.difficulty,
+            "format": request.exercise_format,
+            "calculation_pack": pack.model_dump(),
+            "coherence": coherence.as_metadata(),
+        }
+        if not isinstance(self.llm, TemplateLLM):
+            validation = validate_generated_exercise(draft, content, pack)
+            if not validation.ok:
+                # The LLM altered/dropped a calculated value. Retry once (sampling
+                # is stochastic) before giving up on the richer LLM rendering.
+                retry = self.llm.generate(prompt, max_tokens=2600)
+                rv = validate_generated_exercise(draft, retry, pack)
+                if rv.ok:
+                    content, validation = retry, rv
+                    meta["validation_retry"] = True
+            meta["validation"] = validation.as_metadata()
+            if not validation.ok and self.strict_validation:
+                # Fallback is the deterministic draft — which now carries a REAL
+                # worked corrige (worked_correction_markdown), never a skeleton.
+                content = draft
+                meta["validation_fallback"] = True
+            else:
+                # Keep the LLM prose but guarantee real, un-collapsed sources.
+                content = content.rstrip() + "\n\n" + self._verified_sources_block(context, pack.family)
+
         response = GenerationResponse(
             kind="exercise",
             title=title,
             content=content,
             sources=context.sources,
-            metadata={
-                "llm": self.llm.name,
-                "query": context.query,
-                "difficulty": request.difficulty,
-                "format": request.exercise_format,
-                "calculation_pack": self._calculation_pack(request).model_dump(),
-            },
+            metadata=meta,
         )
         self._save("exercise", request.model_dump(), response.model_dump())
         return response
@@ -296,20 +334,62 @@ class MaterialGenerator:
             focus = focus[:87].rstrip() + "..."
         return f"Cas pratique - {focus}"
 
-    def _source_lines(self, context: GenerationContext) -> str:
+    # Distinctive per-family keywords: a source must mention at least one to be
+    # shown for that family, so a swaption excerpt stops surfacing under a CDS
+    # exercise (generic "swap" overlap is not enough — these are specific terms).
+    _FAMILY_KEYWORDS = {
+        "cds_cs01": ("credit", "default", "cds", "protection", "spread", "hazard", "recovery", "survival"),
+        "rates_swap_dv01": ("swap", "dv01", "annuity", "par rate", "floating", "fixed leg", "tenor"),
+        "bond_duration_dv01": ("bond", "duration", "convexity", "yield", "coupon", "obligation"),
+        "vanilla_option_black_scholes": ("option", "call", "put", "delta", "vega", "gamma", "black-scholes", "volatility", "strike"),
+        "fx_barrier_option": ("barrier", "knock", "barriere", "down-and-out", "up-and-out", "gap"),
+        "parametric_var": ("var", "value at risk", "expected shortfall", "quantile", "confidence", "tail"),
+        "autocall_structured": ("autocall", "athena", "phoenix", "coupon", "barrier", "structured", "redemption"),
+        "monte_carlo_gbm": ("monte carlo", "simulation", "variance", "confidence interval", "gbm", "path"),
+    }
+
+    def _source_lines(self, context: GenerationContext, family: str | None = None) -> str:
         if not context.sources:
             return "- Aucune source retrouvee localement."
-        lines = []
-        for idx, src in enumerate(context.sources, start=1):
-            label = src.title or src.source or src.document_id
-            base = f"- [S{idx}] {label}, chunk {src.chunk_index}, score {src.score}"
-            # Show a clean excerpt only when one survived noise filtering;
-            # otherwise cite the reference without a garbled quote.
-            if self._presentable_source_snippet(src.snippet):
-                lines.append(f"{base}: {src.snippet}")
-            else:
-                lines.append(f"{base} (extrait non cite: source bruitee)")
+        # Curate: keep only sources with a clean, presentable excerpt (drop the
+        # OCR-noise rows that read as an un-curated dump), renumber, and cap at the
+        # most relevant few. A noisy corpus should not surface garbled citations.
+        clean = [s for s in context.sources if self._presentable_source_snippet(s.snippet)]
+        # Topical filter: keep sources that actually mention the family's terms.
+        keywords = self._FAMILY_KEYWORDS.get(family or "", ())
+        if keywords:
+            on_topic = [
+                s for s in clean
+                if any(k in ((s.snippet or "") + " " + (s.title or "")).lower() for k in keywords)
+            ]
+            if on_topic:  # never filter down to nothing
+                clean = on_topic
+        def _clean_title(src) -> str:
+            t = (src.title or src.source or src.document_id or "Source").strip()
+            t = re.sub(r"\s*\(\s*PDFDrive\s*\)\s*", "", t, flags=re.IGNORECASE)
+            t = re.sub(r"\.(pdf|epub)\b", "", t, flags=re.IGNORECASE)
+            t = re.sub(r"\s{2,}", " ", t).strip(" -_")
+            return t
+        if not clean:
+            return f"- {_clean_title(context.sources[0])}"
+        # Learner-facing: clean book title + readable excerpt. No chunk ids, no
+        # scores, no [Sx]/family slugs (those stay in metadata / back-office).
+        seen, lines = set(), []
+        for src in clean:
+            title = _clean_title(src)
+            if title in seen:
+                continue
+            seen.add(title)
+            lines.append(f"- *{title}* — « {src.snippet.strip()} »")
+            if len(lines) >= 4:
+                break
         return "\n".join(lines)
+
+    def _verified_sources_block(self, context: GenerationContext, family: str | None = None) -> str:
+        """Canonical, un-collapsible sources appended after an LLM rewrite, so the
+        real [Sx] excerpts and provenance survive even if the model summarised the
+        section into placeholders."""
+        return "## References (bibliotheque)\n" + self._source_lines(context, family)
 
     def _presentable_source_snippet(self, snippet: str) -> bool:
         text = (snippet or "").strip()
@@ -416,11 +496,20 @@ class MaterialGenerator:
         request: ExerciseRequest,
         title: str,
         context: GenerationContext,
+        pack: CalculationPack | None = None,
+        scenario: str | None = None,
     ) -> str:
         product = request.product or self._infer_product(request) or "instrument a identifier dans le contexte"
         concept = request.concept or request.topic or "concept principal"
-        requested_case = request.free_prompt or "Aucune contrainte numerique imposee."
-        numeric_controls = self._numeric_control_block(request)
+        # Display the scenario the answer key was computed from (coherence), not
+        # the raw prompt, when they diverge.
+        requested_case = scenario or request.free_prompt or "Aucune contrainte numerique imposee."
+        if pack is None:
+            pack, _ = self._calculation_pack(request)
+        # Énoncé shows INPUTS only (no computed results -> the answer is not
+        # spoiled); the corrige holds the verified worked solution.
+        inputs_block = pack.inputs_markdown()
+        worked_correction = pack.worked_correction_markdown()
         calc_line = (
             "Inclure des calculs progressifs et une interpretation economique."
             if request.require_calculations
@@ -442,48 +531,22 @@ decision.
 - Nombre de questions: {request.number_of_questions}
 - Consigne: {calc_line}
 
-## Contraintes donnees par le demandeur
+## Enonce
 {requested_case}
 
-## Donnees de marche et garde-fous numeriques
-{numeric_controls}
+## Donnees fournies et hypotheses
+{inputs_block}
 
-## Donnees a completer
-- Reprendre toutes les donnees numeriques imposees ci-dessus.
-- Si une donnee manque, poser une hypothese simple et visible.
-- Distinguer donnees de marche observees, approximation de pricing et jugement de trader.
+## Questions
+{self._numbered_questions(request, pack)}
 
-## Mission apprenant
-{self._numbered_questions(request)}
+---
 
-## Methode attendue
-- Commencer par qualifier le payoff, le risque principal et la sensibilite dominante.
-- Relier chaque calcul a une intuition economique.
-- Justifier toute approximation.
-- Montrer les formules utilisees avant l'application numerique.
-- Terminer par une decision operationnelle: hedge, monitoring, escalation ou no-trade.
+## Corrige verifie
+{worked_correction}
 
-## Corrige commente
-Le corrige doit etre directement utilisable:
-- rappeler les hypotheses;
-- derouler la methode et les calculs numeriques;
-- donner l'interpretation financiere;
-- expliquer ce que ferait un trader, un sales ou un risk manager;
-- signaler les limites du raisonnement;
-- citer les extraits sources pertinents.
-
-## Decision operationnelle
-Conclure explicitement par une action: hedge, rebalance, monitor, escalate,
-quote, reject ou no-trade. Preciser le declencheur de suivi.
-
-## Grille d'evaluation
-- Identification du produit et des risques: 25%.
-- Methode de valorisation ou de decision: 30%.
-- Calculs et coherence numerique: 25%.
-- Interpretation marche et communication: 20%.
-
-## Sources RAG a exploiter
-{self._source_lines(context)}
+## References (bibliotheque)
+{self._source_lines(context, pack.family if pack is not None else None)}
 """.strip()
 
     def _infer_product(self, request: ExerciseRequest) -> str | None:
@@ -509,7 +572,22 @@ quote, reject ou no-trade. Preciser le declencheur de suivi.
                 return label
         return None
 
-    def _numbered_questions(self, request: ExerciseRequest) -> str:
+    def _numbered_questions(self, request: ExerciseRequest, pack: "CalculationPack | None" = None) -> str:
+        # When a real calculation pack exists, derive the questions FROM its steps
+        # so each numbered question maps 1:1 to a quantity the corrige actually
+        # computes (no more generic "identifier le produit" boilerplate that the
+        # corrige never answers).
+        if pack is not None and pack.steps:
+            qs = [
+                "Identifier le produit et le risque dominant, puis lister les donnees necessaires."
+            ]
+            for step in pack.steps:
+                qs.append(f"Calculer {step.label} : ecrire la formule, substituer, donner le resultat.")
+            qs.append(
+                "Conclure par une decision de desk DIMENSIONNEE (sens, taille de hedge en unites/notionnel, "
+                "declencheur de suivi) et citer les limites du modele."
+            )
+            return "\n".join(f"{i}. {q}" for i, q in enumerate(qs, start=1))
         base = [
             "Identifier le produit, son payoff ou sa logique economique.",
             "Lister les variables de marche qui pilotent sa valeur ou son risque.",
@@ -1993,6 +2071,19 @@ Regles strictes:
             f"[S{idx + 1}] {item.chunk.content}"
             for idx, item in enumerate(context.retrieved)
         )
+        # Kept out of the f-string below because the LaTeX braces would collide
+        # with f-string replacement fields.
+        demo_rules = (
+            "- In the \"Corrige\", write a REAL step-by-step mathematical "
+            "demonstration in LaTeX: inline maths with $...$ and key formulas as "
+            "display blocks with $$...$$ "
+            "(e.g. $$d_1=\\frac{\\ln(S/K)+(r+\\tfrac12\\sigma^2)T}{\\sigma\\sqrt{T}}$$). "
+            "Derive each formula, THEN substitute the numbers from \"Garde-fous "
+            "numeriques\", THEN state the result — using those exact figures, never "
+            "recomputing your own. Close each derivation explicitly (QED / \"soit\").\n"
+            "- The demonstration must explain WHY the formula holds (no-arbitrage, "
+            "replication, quantile), not just restate the answer."
+        )
         return f"""
 You are a {role} for ThePricingLibrary.
 Language: {language}.
@@ -2005,9 +2096,10 @@ Non-negotiable rules:
 - Ground the material in the retrieved context.
 - If the context does not support a specific formula or market fact, say so.
 - Keep a professional market-finance tone.
-- Include source markers like [S1], [S2] when using retrieved material.
-- Distinguish extracted content (grounded in [Sx]) from reformulated content from generated content. Anything not supported by a source must be labelled "genere a partir des concepts", never presented as extracted from the source.
-- If a "Trous pedagogiques" section lists missing blocks (e.g. no exercise, no worked example), either omit them or generate them explicitly flagged as generated; do NOT pretend they came from the sources.
+- Stay honest about grounding WITHOUT exposing machinery: do not fabricate a
+  book fact the context does not support; if something is your own reasoning
+  rather than from a cited book, phrase it plainly as reasoning. Do NOT print
+  "[S1]"/"[Sx]" codes or provenance tags in the learner text.
 - Make the output directly usable in a SaaS learning platform.
 - If the user supplied numerical data, use it. Do not replace it with placeholders.
 - Include an explicit worked correction with formulas, substitutions and final numbers.
@@ -2015,6 +2107,29 @@ Non-negotiable rules:
 - Include a front-office or risk-management action: hedge, rebalance, monitor, escalate, quote or reject.
 - Avoid generic textbook questions. Every question must map to a concrete desk task.
 - If a "Garde-fous numeriques" section is present, do not contradict those values.
+- You are a pedagogical writer, not a calculator: reproduce EVERY number, rate,
+  volatility, price, payoff and result from the draft EXACTLY as given. Never
+  recompute, round away, or "improve" a figure.
+- Never introduce a formula that is not already in the draft or the sources.
+- Never invent a source or a [Sx] marker that is not in the retrieved context.
+- Improve clarity and vary the phrasing; adapt the tone to the requested level.
+  Structure: Enonce (contexte de desk) / Donnees fournies / Questions / Corrige / Sources.
+- The ENONCE must contain ONLY the given inputs and the questions. Do NOT print any
+  computed result (price, d1, DV01, CS01, VaR, payoff, P&L) before the Corrige —
+  otherwise there is no exercise left to solve. All results live in the Corrige.
+- Write questions SPECIFIC to this instrument and scenario (a real desk task per
+  question). Do NOT emit generic scaffolding ("Mission apprenant", "Methode
+  attendue", "Grille d'evaluation") — those are forbidden boilerplate.
+- Add ONE genuine desk layer the textbook omits (e.g. vol skew/smile, real
+  discount curve, basis, JTD-vs-carry, variance reduction, limit breach action).
+- For any limit/threshold comparison, state the verdict that matches the numbers
+  (a VaR above its limit is a BREACH requiring action — never call it acceptable).
+- Write for the learner (student / junior trader). NEVER expose internal
+  machinery: no "RAG", no "garde-fous numeriques", no calculation-family slugs
+  (e.g. "vanilla_option_black_scholes", "cds_cs01"), no "[S1]"/"[Sx]" markers,
+  no chunk ids or scores. A clean "References (bibliotheque)" list is appended
+  automatically — if you want to cite a book, name it in plain prose.
+{demo_rules}
 
 Retrieved context:
 {source_text or 'No retrieved context.'}
@@ -2041,9 +2156,14 @@ Retrieved context:
         self.store.save_generation(run_id, kind, request, response)
 
     def _numeric_control_block(self, request: ExerciseRequest) -> str:
-        return self._calculation_pack(request).as_markdown()
+        return self._calculation_pack(request)[0].as_markdown()
 
-    def _calculation_pack(self, request: ExerciseRequest) -> CalculationPack:
+    def _calculation_pack(self, request: ExerciseRequest) -> tuple[CalculationPack, str]:
+        """Return the verified calculation pack AND the scenario text it was
+        actually computed from. When the user's numbers parse, that scenario is
+        the user's own prompt; when they don't and we fall back to a seeded
+        standard case, it is the seed — so the displayed enonce always matches
+        the corrige (coherence guarantee, enforced by validate_calculation_coherence)."""
         text = " ".join(
             part
             for part in [
@@ -2063,7 +2183,7 @@ Retrieved context:
         family_hint = seed[0] if seed else None
         pack = self.calculator.build_pack(text, family_hint=family_hint)
         if pack.steps or not request.require_calculations:
-            return pack
+            return pack, (request.free_prompt or "Aucune contrainte numerique imposee.")
         # The request carried no parseable numbers, so the calculator produced no
         # answer key. Seed a topic-appropriate verified scenario so the exercise
         # still ships a real, computed correction (F-EXO-3), mirroring the course
@@ -2081,8 +2201,11 @@ Retrieved context:
             family, seed_text = seed
             seeded = self.calculator.build_pack(seed_text, family_hint=family)
             if seeded.steps:
-                return seeded
-        return pack
+                # Display the seeded scenario as the enonce so it stays coherent
+                # with this computed answer key (the user's unparseable numbers
+                # are NOT shown as if they had been used).
+                return seeded, seed_text
+        return pack, (request.free_prompt or "Aucune contrainte numerique imposee.")
 
     def _library_track(self, topic: str, product: str | None) -> dict:
         focus = f"{topic} {product or ''}".lower()

@@ -9,7 +9,7 @@ from .evaluation import ProductEvaluator
 from .generation import MaterialGenerator
 from .ingestion import IngestionService
 from .llm import LocalLLM, build_llm
-from .retrieval import LocalRetriever
+from .retrieval import BaseRetriever, build_retriever
 from .storage import LocalStore
 
 
@@ -18,7 +18,7 @@ class Services:
     settings: Settings
     store: LocalStore
     embeddings: EmbeddingBackend
-    retriever: LocalRetriever
+    retriever: BaseRetriever
     ingestion: IngestionService
     generator: MaterialGenerator
     llm: LocalLLM
@@ -34,8 +34,9 @@ def build_services(settings: Settings | None = None) -> Services:
         backend_name=settings.embedding_backend,
         dim=settings.embedding_dim,
         sentence_transformer_model=settings.sentence_transformer_model,
+        openai_api_key=settings.openai_api_key,
     )
-    retriever = LocalRetriever(store, embeddings)
+    retriever = build_retriever(settings.retrieval_mode, store, embeddings)
     ingestion = IngestionService(store, embeddings, settings)
     llm = build_llm(
         settings.llm_provider,
@@ -48,7 +49,9 @@ def build_services(settings: Settings | None = None) -> Services:
         ollama_model=settings.ollama_model,
         transformers_model_path=settings.transformers_model_path,
     )
-    generator = MaterialGenerator(retriever, llm, store=store)
+    generator = MaterialGenerator(
+        retriever, llm, store=store, strict_validation=settings.strict_validation
+    )
     evaluator = ProductEvaluator()
     billing = BillingService(settings, store)
     return Services(

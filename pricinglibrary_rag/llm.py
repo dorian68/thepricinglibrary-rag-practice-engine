@@ -7,11 +7,20 @@ from abc import ABC, abstractmethod
 
 
 class LocalLLM(ABC):
+    """Abstract writer. Every backend takes the structured prompt and returns
+    prose. It is ONLY a pedagogical writer — it never computes anything; the
+    numbers come from the deterministic calculators and are guarded after
+    generation (see validation.validate_generated_exercise)."""
+
     name: str
 
     @abstractmethod
     def generate(self, prompt: str, *, max_tokens: int = 2200) -> str:
         raise NotImplementedError
+
+
+# Spec-facing alias: the abstract base is the same object under a clearer name.
+BaseLLM = LocalLLM
 
 
 class TemplateLLM(LocalLLM):
@@ -82,6 +91,10 @@ class OpenAIChatLLM(LocalLLM):
         )
         message = response.choices[0].message.content
         return (message or "").strip()
+
+
+# Spec-facing alias.
+OpenAILLM = OpenAIChatLLM
 
 
 class OllamaLLM(LocalLLM):

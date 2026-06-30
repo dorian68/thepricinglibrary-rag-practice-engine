@@ -16,6 +16,12 @@ services:
     environment:
       TPL_LLM_PROVIDER: ${TPL_LLM_PROVIDER:-template}      # set to "openai" for premium prose
       TPL_OPENAI_API_KEY: ${TPL_OPENAI_API_KEY:-}
+      # Generation pipeline modes (safe defaults; see .env.example).
+      GENERATION_MODE: ${GENERATION_MODE:-template}
+      RETRIEVAL_MODE: ${RETRIEVAL_MODE:-hybrid}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      GENERATION_STRICT_VALIDATION: ${GENERATION_STRICT_VALIDATION:-true}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       STRIPE_PRICE_STARTER: ${STRIPE_PRICE_STARTER:-}

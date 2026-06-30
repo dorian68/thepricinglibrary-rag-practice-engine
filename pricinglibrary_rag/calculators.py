@@ -47,6 +47,45 @@ class CalculationPack:
             lines.extend(f"  - {item}" for item in self.warnings)
         return "\n".join(lines)
 
+    def inputs_markdown(self) -> str:
+        """Énoncé-side view: the given data and controlled hypotheses ONLY — never
+        the computed results, so the worked answer is not spoiled before the
+        corrige."""
+        if not self.assumptions and not self.steps:
+            return "- Donnees de marche a poser explicitement (aucune contrainte numerique imposee)."
+        lines = []
+        if self.assumptions:
+            lines.append("- Hypotheses de travail:")
+            lines.extend(f"  - {item}" for item in self.assumptions)
+        if self.steps:
+            lines.append("- A calculer:")
+            lines.extend(f"  - {step.label}" for step in self.steps)
+        return "\n".join(lines)
+
+    def worked_correction_markdown(self) -> str:
+        """Corrige-side view: the actual verified worked solution (formula ->
+        substitution -> result), the desk reading, the operational decision and
+        the caveats. This is a real answer key, never a description of one."""
+        if not self.steps:
+            return (
+                "- Aucun calcul automatique reconnu. Poser les hypotheses, ecrire "
+                "les formules, verifier les ordres de grandeur a la main."
+            )
+        lines = ["**Corrige detaille :**"]
+        for i, step in enumerate(self.steps, 1):
+            lines.append(f"{i}. **{step.label}**")
+            lines.append(f"   - Formule: {step.formula}")
+            lines.append(f"   - Substitution: {step.substitution}")
+            lines.append(f"   - Resultat: **{step.result}**")
+            lines.append(f"   - Lecture desk: {step.desk_comment}")
+        if self.desk_actions:
+            lines.append("\n**Decision operationnelle:**")
+            lines.extend(f"- {item}" for item in self.desk_actions)
+        if self.warnings:
+            lines.append("\n**Limites / vigilance:**")
+            lines.extend(f"- {item}" for item in self.warnings)
+        return "\n".join(lines)
+
     def model_dump(self) -> dict:
         return {
             "family": self.family,
@@ -65,8 +104,27 @@ class PracticeCalculator:
     module supplies controlled desk-style approximations for pedagogical cases.
     """
 
+    def _normalize_scenario(self, text: str) -> str:
+        """Rewrite desk-style symbolic notation into the verbose forms the family
+        parsers expect, so 'S=100 K=100 sigma=20% T=1' is read with the USER's
+        numbers instead of silently falling back to a canned seed scenario."""
+        t = f" {text} "
+        subs = [
+            (r"(?<![A-Za-z])S0?\s*=\s*([0-9][0-9.,]*)", r" spot \1 "),
+            (r"(?<![A-Za-z])K\s*=\s*([0-9][0-9.,]*)", r" strike \1 "),
+            (r"(?:sigma|σ|vol|volatilite|volatility)\s*=\s*([0-9][0-9.,]*)\s*%", r" volatilite \1% "),
+            (r"(?<![A-Za-z])T\s*=\s*([0-9][0-9.,]*)", r" maturite \1 "),
+            (r"(?<![A-Za-z])(?:r|taux|rate)\s*=\s*([0-9][0-9.,]*)\s*%", r" taux \1% "),
+            (r"(?:barriere|barrière|barrier)\s*=\s*([0-9][0-9.,]*)", r" barriere de \1 "),
+            (r"(?<![A-Za-z])B\s*=\s*([0-9][0-9.,]*)", r" barriere de \1 "),
+            (r"(?:strike|prix d'exercice)\s*=\s*([0-9][0-9.,]*)", r" strike \1 "),
+        ]
+        for pat, rep in subs:
+            t = re.sub(pat, rep, t, flags=re.IGNORECASE)
+        return t
+
     def build_pack(self, text: str, family_hint: str = "auto") -> CalculationPack:
-        normalized = " ".join(text.split())
+        normalized = " ".join(self._normalize_scenario(text).split())
         calculators = {
             "options_book_greeks": self._options_book_pack,
             "rates_swap_dv01": self._swap_pack,
@@ -146,15 +204,26 @@ class PracticeCalculator:
 
     def _swap_pack(self, text: str) -> CalculationPack | None:
         lower = text.lower()
-        if "swap" not in lower or not any(term in lower for term in ["dv01", "annuity", "annuite", "annuité"]):
+        # A rates swap, not a credit default swap.
+        if "swap" not in lower or "cds" in lower or "credit default" in lower:
             return None
-        notional = self._extract_m_amount(lower, r"notionnel\s*([+-]?\s*\d+(?:[.,]\d+)?)\s*m")
-        fixed = self._extract_number(lower, r"(?:fixed coupon|taux fixe|coupon fixe)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)\s*%")
-        par = self._extract_number(lower, r"(?:par swap rate|taux swap actuel|par rate actuel)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)\s*%")
-        annuity = self._extract_number(lower, r"(?:annuity|annuite|annuité)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)")
-        shock_bp = self._extract_number(lower, r"(?:monte|hausse|up|rise|shock)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)\s*bp")
-        if None in (notional, fixed, par, annuity):
+        notional = (self._extract_m_amount(lower, r"(?:notionnel|notional)\s*(?:eur\s*)?([+-]?\s*\d+(?:[.,]\d+)?)\s*m")
+                    or self._extract_m_amount(lower, r"([+-]?\s*\d+(?:[.,]\d+)?)\s*m\b"))
+        fixed = self._extract_number(lower, r"(?:fixed coupon|taux fixe|coupon fixe|fixe)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)\s*%")
+        par = self._extract_number(lower, r"(?:par swap rate|taux swap actuel|par rate actuel|par rate|taux swap)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)\s*%")
+        annuity = self._extract_number(lower, r"(?:annuity|annuite|annuité|pv01|risky annuity)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)")
+        maturity = self._extract_maturity(lower)
+        shock_bp = self._extract_shock_bp(lower)
+        if None in (notional, fixed):
             return None
+        # Derive the annuity from the tenor when the prompt doesn't state it, so a
+        # desk-style "payeur fixe 50m 5 ans 3%" still computes a real DV01.
+        if annuity is None:
+            if maturity is None:
+                return None
+            annuity = self._annuity_from_maturity(maturity, fixed)
+        if par is None:
+            par = fixed  # at par: PV payer = 0 unless the prompt moves the rate
         dv01 = annuity * notional * 0.0001
         payer_pv = (par / 100 - fixed / 100) * annuity * notional
         steps = [
@@ -171,13 +240,14 @@ class PracticeCalculator:
             title="PV/DV01 de swap de taux",
             assumptions=[
                 "Approximation mono-courbe et parallel shift.",
-                "Annuite fournie par le prompt, pas recalibree.",
+                f"Annuite (PV01) approximee depuis la maturite {maturity:g} ans a taux plat {fixed:g}%: {annuity:.4f}." if maturity is not None else "Annuite fournie par le prompt.",
                 "Signe exprime du point de vue payer fixe / receiver flottant.",
             ],
             steps=steps,
             desk_actions=[
                 "Comparer le signe de PV avec le sens payer/receiver.",
-                "Hedger DV01 avec swap oppose, futures taux ou bond hedge selon le book.",
+                f"Hedge DV01-neutre CHIFFRE: pour annuler DV01={dv01:,.0f} EUR/bp -> environ {round(dv01 / 80):,} futures Bund (DV01 ~80 EUR/bp/contrat), ou un swap receveur de meme tenor au notionnel de la position.",
+                "Risque de courbe: un hedge sur un seul tenor laisse un risque de pente (key-rate). Couvrir par buckets si le book est sur plusieurs maturites.",
                 "Expliquer le basis risk si la couverture n'est pas sur le meme tenor.",
             ],
         )
@@ -195,7 +265,35 @@ class PracticeCalculator:
         notional = self._extract_m_amount(lower, r"notionnel\s*(?:eur\s*)?([+-]?\s*\d+(?:[.,]\d+)?)\s*m")
         if None in (strike, barrier, notional):
             return None
+        # Payoff multiplier by asset convention, so it never overstates ~S0-fold:
+        #  - FX (rate ~1): notional is in base-ccy units -> multiplier = notional.
+        #  - equity/index/commodity (price level): units = notional / S0.
+        if spot and spot < 10:
+            multiplier = notional
+            unit_comment = "notionnel en devise de base (convention FX)."
+        elif spot:
+            multiplier = notional / spot
+            unit_comment = f"nb d'unites = notionnel/S0 = {notional:,.0f}/{spot:g} = {multiplier:,.0f}."
+        else:
+            multiplier = notional
+            unit_comment = "notionnel = nombre d'unites."
         steps = []
+        # Analytic KO value (Reiner-Rubinstein) when vol/maturity are given, so the
+        # corrige shows a real price, not only terminal payoff bookkeeping.
+        vol = self._extract_number(lower, r"(?:sigma|σ|vol|volatilite|volatility)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)\s*%")
+        bmat = self._extract_maturity(lower) or self._extract_number(lower, r"maturite[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)")
+        brate = self._extract_number(lower, r"(?:taux|rate)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)\s*%") or 0.0
+        if spot and vol and bmat and spot > 5:  # equity-style level; FX leave to payoff
+            rr = self._down_out_call_rr(spot, strike, barrier, vol / 100, bmat, brate / 100)
+            if rr:
+                c_bs, c_di, c_do = rr
+                steps.append(CalculationStep(
+                    "Prix knock-out (Reiner-Rubinstein + parite in-out)",
+                    "C_DI = S(H/S)^(2(mu+1))N(y) - K e^(-rT)(H/S)^(2mu)N(y-sigma√T) ; puis DOC = C_vanille - C_DI",
+                    f"H={barrier:g}<=K={strike:g}, mu=(r-sigma^2/2)/sigma^2 -> C_vanille={c_bs:.4f}, C_DI={c_di:.4f}",
+                    f"DOC = {c_bs:.4f} - {c_di:.4f} = {c_do:.4f} par unite (soit {c_do * multiplier:,.0f} sur le notionnel)",
+                    "Vraie valeur du knock-out (formule fermee, pas le payoff terminal): proche du vanille quand la barriere est lointaine, fortement decotee quand le spot s'en approche.",
+                ))
         for raw in re.findall(r"spot\s*(?:a|à)\s*([+-]?\d+(?:[.,]\d+)?)", lower)[:6]:
             final_spot = self._parse_float(raw)
             if final_spot is None:
@@ -205,11 +303,12 @@ class PracticeCalculator:
                 comment = "Barriere touchee ou atteinte: option eteinte."
                 substitution = f"spot {final_spot:g} <= barriere {barrier:g}"
             else:
-                payoff = max(final_spot - strike, 0) * notional
-                result = f"{payoff:,.0f} USD approx"
-                comment = "Payoff de call conditionnel au non knock-out."
-                substitution = f"max({final_spot:g} - {strike:g}, 0) * {notional:,.0f}"
-            steps.append(CalculationStep(f"Scenario spot {final_spot:g}", "Payoff down-and-out call", substitution, result, comment))
+                intrinsic = max(final_spot - strike, 0)
+                payoff = intrinsic * multiplier
+                result = f"{payoff:,.0f} USD"
+                comment = f"Payoff terminal de call conditionnel au non knock-out ({unit_comment})"
+                substitution = f"({final_spot:g} - {strike:g}) x {multiplier:,.0f} = {intrinsic:g} x {multiplier:,.0f}"
+            steps.append(CalculationStep(f"Scenario spot {final_spot:g}", "Payoff down-and-out call (valeur terminale)", substitution, result, comment))
         assumptions = [
             "Down-and-out: si la barriere est touchee pendant la vie du produit, payoff final nul.",
             "Les scenarios non knock-out utilisent un payoff de call simple.",
@@ -222,9 +321,9 @@ class PracticeCalculator:
             assumptions=assumptions,
             steps=steps,
             desk_actions=[
-                "Surveiller le spot et le risque de gap proche barriere.",
-                "Discuter hedge delta/gamma mais signaler la discontinuite de payoff.",
-                "Prevoir escalation risk si le spot entre dans une zone de monitoring.",
+                f"Hedge delta CHIFFRE pres de la barriere: le delta explose a l'approche de H={barrier:g}; un delta-hedge continu echoue sur un gap (saut a travers H), donc plafonner la taille et garder une reserve.",
+                f"Risque de gap quantifie: si le spot franchit H={barrier:g}, la valeur saute a 0 -> perte ~ valeur KO courante x notionnel; couvrir avec une option de rappel (reverse KO) plutot que du delta seul.",
+                "Escalation risk: definir une zone de monitoring (ex. spot a moins de 5% de H) et un mandat de de-risk automatique.",
             ],
             warnings=[
                 "Une couverture delta continue peut echouer en cas de gap a travers la barriere.",
@@ -247,12 +346,20 @@ class PracticeCalculator:
         return CalculationPack(
             family="bond_duration_dv01",
             title="DV01 et P&L obligataire",
-            assumptions=["Approximation duration lineaire.", "Prix clean/dirty ignore si non precise."],
+            assumptions=[
+                f"Duration = duration MODIFIEE (sensibilite prix au taux), ici {duration:g}.",
+                "Approximation de premier ordre (lineaire); la convexite corrige les gros chocs.",
+                "Prix clean/dirty ignore si non precise.",
+            ],
             steps=[
-                CalculationStep("DV01 obligation", "Duration * Notionnel * 1bp", f"{duration:g} * {notional:,.0f} * 0.0001", f"{dv01:,.0f} EUR/bp", "Sensibilite taux de premier ordre."),
+                CalculationStep("DV01 obligation", "Duration modifiee * Notionnel * 1bp", f"{duration:g} * {notional:,.0f} * 0.0001", f"{dv01:,.0f} EUR/bp", "Sensibilite taux de premier ordre (signe negatif: prix baisse si taux monte)."),
                 CalculationStep("P&L shock taux", "-DV01 * shock bp", f"-{dv01:,.0f} * {shock_bp:g}", f"{pnl:,.0f} EUR", "Un long bond perd quand les taux montent."),
             ],
-            desk_actions=["Hedger duration avec futures, swap ou bond benchmark.", "Verifier convexite si le choc est large."],
+            desk_actions=[
+                f"Hedge DV01-neutre CHIFFRE: DV01={dv01:,.0f} EUR/bp -> environ {round(dv01 / 80):,} futures de taux (~80 EUR/bp/contrat).",
+                f"Correction de convexite (distingue du swap lineaire): avec un PROXY d'ordre de grandeur C ~ duration^2 = {duration ** 2:.0f} (la vraie convexite depend du profil de cashflows et doit etre calculee/donnee), terme ~ 0.5*C*Notionnel*choc^2 = {0.5 * (duration ** 2) * notional * (shock_bp / 10000) ** 2:,.0f} EUR a ajouter au P&L lineaire pour les gros chocs.",
+                "Distinguer du swap: ici risque de credit/spread de l'emetteur EN PLUS du risque de taux pur.",
+            ],
         )
 
     def _vanilla_option_pack(self, text: str) -> CalculationPack | None:
@@ -294,19 +401,34 @@ class PracticeCalculator:
                 CalculationStep("Verification parite call-put", "C - P = S - K*exp(-rT)", f"{call:.4f} - {put:.4f} = {spot:g} - {disc_k:.4f}", f"{call - put:.4f} = {parity_rhs:.4f}", "Si les deux cotes ne collent pas, une quote est incoherente / arbitrable."),
                 CalculationStep("Greeks", "Delta=N(d1); Gamma=phi(d1)/(S sigma sqrt(T)); Vega=S phi(d1) sqrt(T)/100", f"inputs S={spot:g}, sigma={sigma:.2%}, T={t:g}", f"Delta={delta:.4f}; Gamma={gamma:.6f}; Vega/vol pt={vega:.4f}", "Base du hedge delta/vega; delta du put = delta call - 1."),
             ],
-            desk_actions=["Comparer prix modele et prix marche.", "Hedger delta puis surveiller vega/gamma.", "Verifier la parite call-put avant de coter les deux jambes."],
+            desk_actions=[
+                "Comparer prix modele et prix marche.",
+                f"Hedge delta-neutre DIMENSIONNE: vendre Delta={delta:.4f} unite de sous-jacent par option longue (pour N options: {delta:.4f}*N); rebalancer quand le spot bouge (gamma={gamma:.6f} par unite).",
+                f"Risque vega residuel: {vega:.4f} par point de vol -> surveiller/couvrir avec une autre option si le book est directionnel en vol.",
+                "Verifier la parite call-put avant de coter les deux jambes.",
+            ],
         )
 
     def _cds_pack(self, text: str) -> CalculationPack | None:
         lower = text.lower()
         if "cds" not in lower and "credit default swap" not in lower:
             return None
-        notional = self._extract_m_amount(lower, r"notionnel\s*([+-]?\s*\d+(?:[.,]\d+)?)\s*m")
+        notional = (self._extract_m_amount(lower, r"(?:notionnel|notional)\s*(?:eur\s*)?([+-]?\s*\d+(?:[.,]\d+)?)\s*m")
+                    or self._extract_m_amount(lower, r"([+-]?\s*\d+(?:[.,]\d+)?)\s*m\b"))
         spread = self._extract_number(lower, r"(?:spread|coupon)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)\s*bp")
         risky_annuity = self._extract_number(lower, r"(?:risky annuity|annuite risquee|annuité risquée|risky pv01)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)")
-        shock_bp = self._extract_number(lower, r"(?:widen|elarg|élarg|shock)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)\s*bp")
-        if None in (notional, spread, risky_annuity):
+        maturity = self._extract_maturity(lower)
+        if None in (notional, spread):
             return None
+        # Risky PV01 from the tenor when the prompt omits it (flat ~3% discount),
+        # so a desk-style "CDS 5 ans 10m 150bp" computes a real CS01.
+        annuity_derived = risky_annuity is None
+        if risky_annuity is None:
+            if maturity is None:
+                return None
+            risky_annuity = self._risky_annuity(maturity, spread)
+        # The widening shock is a bp value that is NOT the spread itself.
+        shock_bp = self._extract_shock_bp(lower, exclude=spread)
         cs01 = risky_annuity * notional * 0.0001
         annual_premium = spread * 0.0001 * notional       # coupon couru sur un an
         pv_premium_leg = annual_premium * risky_annuity    # = spread*bp * risky_annuity * notionnel
@@ -316,6 +438,13 @@ class PracticeCalculator:
             CalculationStep("Coupon annuel", "Spread (en decimal) * Notionnel", f"{spread:g}bp * {notional:,.0f} = {spread / 100:g}% * {notional:,.0f}", f"{annual_premium:,.0f} EUR/an", "Prime PAYEE chaque annee par l'acheteur de protection (carry negatif pour lui)."),
             CalculationStep("PV jambe de prime", "Coupon annuel * Risky annuity", f"{annual_premium:,.0f} * {risky_annuity:g}", f"{pv_premium_leg:,.0f} EUR", "Valeur actualisee de TOUTES les primes futures; ne pas la confondre avec le coupon annuel."),
             CalculationStep("Jump-to-default (LGD 60%)", "(1 - Recovery) * Notionnel", f"(1 - 0.40) * {notional:,.0f}", f"{jtd:,.0f} EUR", "Gain de l'acheteur de protection si defaut immediat; a comparer au carry paye."),
+            CalculationStep(
+                "Upfront SNAC (coupon fixe 100bp)",
+                "(spread - coupon_standard) * risky PV01 * notionnel",
+                f"({spread:g}bp - 100bp) * {risky_annuity:.4f} * {notional:,.0f} = {(spread - 100) / 10000:g} * {risky_annuity:.4f} * {notional:,.0f}",
+                f"{(spread - 100) / 10000 * risky_annuity * notional:,.0f} EUR upfront (paye par l'acheteur si spread > coupon)",
+                "Convention SNAC: le CDS cote avec un coupon fixe (100bp IG / 500bp HY) + un upfront; l'acheteur de protection paie l'upfront quand le spread depasse le coupon.",
+            ),
         ]
         if shock_bp is not None:
             pnl = cs01 * shock_bp
@@ -325,6 +454,7 @@ class PracticeCalculator:
             title="CS01, carry et jump-to-default CDS",
             assumptions=[
                 "Approximation spread-DV01; pas de bootstrap de hazard curve.",
+                f"Risky PV01 SURVIE-actualisee (hazard = spread/(1-R), R=40%, r=3%, {maturity:g} ans): {risky_annuity:.4f}." if annuity_derived and maturity is not None else "Risky annuity fournie par le prompt.",
                 "Signe donne du point de vue acheteur de protection.",
                 "Recovery 40% (LGD 60%) si non precise.",
             ],
@@ -332,7 +462,7 @@ class PracticeCalculator:
             desk_actions=[
                 "Comparer carry annuel paye et jump-to-default protege.",
                 "Distinguer coupon annuel (cash/an) et PV de la jambe de prime (valeur du contrat).",
-                "Hedger indice/single-name en tenant compte du basis.",
+                f"Hedge CS01-neutre CHIFFRE: l'iTraxx Main a un CS01 ~ {max(round(risky_annuity * 1_000_000 * 0.0001), 1):,} EUR/bp par 1m -> notionnel d'indice ~ {cs01 / max(risky_annuity * 1_000_000 * 0.0001, 1):,.1f}m pour annuler CS01={cs01:,.0f}; surveiller le basis single-name vs indice.",
             ],
         )
 
@@ -352,6 +482,28 @@ class PracticeCalculator:
         var = value * sigma_h * z
         # Parametric (Gaussian) Expected Shortfall: E[loss | loss > VaR].
         es = value * sigma_h * self._norm_pdf(z) / (1 - alpha)
+        # Risk limit: parse 'limite 600k / 0.6m / 600000' and compute the
+        # breach verdict here so the correction never mislabels it.
+        limit = self._extract_number(lower, r"limite?[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)\s*k")
+        if limit is not None:
+            limit *= 1000
+        else:
+            limit = self._extract_m_amount(lower, r"limite?[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)\s*m")
+        if limit is None:
+            limit = self._extract_number(lower, r"limite?[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)")
+        limit_steps = []
+        if limit:
+            util = var / limit
+            breach = var > limit
+            verdict = "DEPASSEMENT de limite" if breach else "dans la limite"
+            limit_steps.append(CalculationStep(
+                "Comparaison a la limite VaR",
+                "VaR vs limite -> utilisation = VaR / limite",
+                f"{var:,.0f} vs {limit:,.0f} -> {util:.1%}",
+                f"{verdict} (utilisation {util:.1%})",
+                ("VaR au-dessus de la limite: reduire le risque / escalader AUJOURD'HUI."
+                 if breach else "Marge restante avant la limite; surveiller."),
+            ))
         return CalculationPack(
             family="parametric_var",
             title="VaR et Expected Shortfall parametriques",
@@ -363,7 +515,7 @@ class PracticeCalculator:
             steps=[
                 CalculationStep("VaR", "Valeur * vol * sqrt(horizon) * z(alpha)", f"{value:,.0f} * {vol / 100:.4f} * sqrt({horizon:g}) * {z:.4f}", f"{var:,.0f}", "Perte seuil non depassee avec une probabilite alpha."),
                 CalculationStep("Expected Shortfall", "Valeur * vol * sqrt(horizon) * phi(z)/(1-alpha)", f"{value:,.0f} * {vol / 100:.4f} * sqrt({horizon:g}) * {self._norm_pdf(z):.4f}/{1 - alpha:.4f}", f"{es:,.0f}", "Perte moyenne CONDITIONNELLE au-dela de la VaR; toujours >= VaR."),
-            ],
+            ] + limit_steps,
             desk_actions=[
                 "Comparer VaR et Expected Shortfall a la limite et aux stress tests.",
                 "Si l'ES est tres au-dessus de la VaR, la queue est lourde: prioriser les stress scenarios.",
@@ -386,13 +538,21 @@ class PracticeCalculator:
         coupon = self._extract_number(lower, r"(?<!barriere )coupon\s*(?:de\s*)?([+-]?\s*\d+(?:[.,]\d+)?)\s*%")
         notional = (self._extract_m_amount(lower, r"notionnel\s*(?:eur\s*)?([+-]?\s*\d+(?:[.,]\d+)?)\s*m")
                     or self._extract_number(lower, r"notionnel\s*(?:eur\s*)?([+-]?\s*\d+(?:[.,]\d+)?)"))
-        levels_txt = re.search(r"(?:niveaux observes|observations|niveaux|observes)\s*[:=]?\s*([0-9.,\s]+)", lower)
+        # Capture the whole tail after the keyword, then read every number until a
+        # non-number/non-connector token. "95 et 102" -> [95, 102] (previously the
+        # 'et'/'and' connector silently truncated the list to [95]).
+        levels_txt = re.search(r"(?:niveaux observes|observations|niveaux|observes)\s*[:=]?\s*(.+)$", lower)
         levels = []
         if levels_txt:
-            for tok in re.split(r"[,\s]+", levels_txt.group(1).strip()):
+            for tok in re.split(r"[\s,;&]+|\bet\b|\band\b", levels_txt.group(1).strip()):
+                tok = tok.strip()
+                if not tok:
+                    continue
                 v = self._parse_float(tok)
                 if v is not None:
                     levels.append(v)
+                else:
+                    break  # stop at the first token that is not a level
         if None in (initial, ac_bar, cpn_bar, prot_bar, coupon, notional) or not levels:
             return None
         memory = "memoire" in lower or "mémoire" in lower or "memory" in lower
@@ -441,8 +601,8 @@ class PracticeCalculator:
             steps=steps,
             desk_actions=[
                 "Identifier le scenario dominant: rappel anticipe (probable si spot eleve) ou perte en capital.",
-                "Lire la sensibilite vendeur: short put down-and-in + short calls digitaux (autocall = combinaison d'options).",
-                "Surveiller le gap pres de la barriere de protection a l'approche de la maturite.",
+                f"Hedge NON dimensionnable en delta simple (payoff path-dependent + barriere): decomposer en short put down-and-in (barriere protection {prot_bar:g}%) + short digitaux de coupon, et couvrir en vega/skew, pas seulement en delta.",
+                f"Monitoring CHIFFRE: surveiller la distance a la barriere de protection {prot_bar:g}% du niveau initial {initial:g} (= {pb * initial:g}); de-risk si le spot s'en approche car la perte en capital y devient 1:1.",
             ],
             warnings=[
                 "Le prix reel exige un modele (Monte Carlo sous vol/dividendes/correlation), pas seulement le payoff de scenarios.",
@@ -457,8 +617,10 @@ class PracticeCalculator:
         spot = self._extract_number(lower, r"spot\s*([+-]?\s*\d+(?:[.,]\d+)?)")
         strike = self._extract_number(lower, r"(?:strike|prix d'exercice)\s*([+-]?\s*\d+(?:[.,]\d+)?)")
         vol = self._extract_number(lower, r"(?:vol|volatilite|volatility)\s*([+-]?\s*\d+(?:[.,]\d+)?)\s*%")
-        maturity = self._extract_number(lower, r"(?:maturite|maturité|maturity)\s*([+-]?\s*\d+(?:[.,]\d+)?)")
-        rate = self._extract_number(lower, r"(?:taux|rate|risk-free)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)\s*%") or 0.0
+        maturity = (self._extract_number(lower, r"(?:maturite|maturité|maturity)\s*([+-]?\s*\d+(?:[.,]\d+)?)")
+                    or self._extract_maturity(lower)
+                    or self._extract_number(lower, r"horizon[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)"))
+        rate = (self._extract_number(lower, r"(?:taux|rate|risk-free|drift)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)\s*%") or 0.0)
         paths = self._extract_number(lower, r"(\d[\d ]{2,})\s*(?:simulations|paths|tirages|trajectoires)")
         if None in (spot, strike, vol, maturity):
             return None
@@ -620,6 +782,45 @@ class PracticeCalculator:
             return None
         return self._parse_float(match.group(1))
 
+    def _extract_maturity(self, text: str) -> float | None:
+        """Read a tenor in years: 'maturite 5', '5 ans', '5y', '5 years'."""
+        m = re.search(
+            r"(?:maturite|maturité|maturity|tenor|echeance|échéance)[^\d+-]*([0-9][0-9.,]*)",
+            text, flags=re.IGNORECASE,
+        )
+        if m:
+            return self._parse_float(m.group(1))
+        m = re.search(r"([0-9][0-9.,]*)\s*(?:ans|an|years?|y)\b", text, flags=re.IGNORECASE)
+        return self._parse_float(m.group(1)) if m else None
+
+    def _extract_shock_bp(self, text: str, exclude: float | None = None) -> float | None:
+        """Read a basis-point shock written either way: 'shock 25bp', '+25bp',
+        '50bp d'elargissement'. Skips a value equal to `exclude` (e.g. the spread
+        itself) so a CDS spread isn't mistaken for the widening shock."""
+        for raw in re.findall(r"([+-]?\s*\d+(?:[.,]\d+)?)\s*bp", text, flags=re.IGNORECASE):
+            val = self._parse_float(raw)
+            if val is None:
+                continue
+            if exclude is not None and abs(val - exclude) < 1e-9:
+                continue
+            return val
+        return None
+
+    def _annuity_from_maturity(self, maturity: float, rate_pct: float) -> float:
+        """Flat-curve PV01/annuity approximation: sum of annual discount factors."""
+        r = max(rate_pct, 0.01) / 100
+        n = max(int(round(maturity)), 1)
+        return sum(1.0 / (1.0 + r) ** i for i in range(1, n + 1))
+
+    def _risky_annuity(self, maturity: float, spread_bp: float, recovery: float = 0.40, r: float = 0.03) -> float:
+        """Survival-discounted risky PV01: sum of exp(-(r+hazard)*i), with the
+        credit-triangle hazard h = spread/(1-recovery). Lower than the risk-free
+        annuity (default risk shortens expected premium payments) — desk-honest,
+        so CS01/PV are not overstated."""
+        hazard = (spread_bp / 10000.0) / max(1.0 - recovery, 1e-6)
+        n = max(int(round(maturity)), 1)
+        return sum(math.exp(-(r + hazard) * i) for i in range(1, n + 1))
+
     def _extract_k_amount(self, text: str, pattern: str) -> float | None:
         value = self._extract_number(text, pattern)
         if value is None:
@@ -638,6 +839,30 @@ class PracticeCalculator:
             return float(cleaned)
         except ValueError:
             return None
+
+    def _down_out_call_rr(self, S, K, H, sigma, T, r, q=0.0):
+        """Reiner-Rubinstein down-and-out call price (analytic, not just payoff).
+        Returns (vanilla, down-and-in, down-and-out). Valid for H < S."""
+        if not (H < S and sigma > 0 and T > 0):
+            return None
+        sq = sigma * math.sqrt(T)
+        mu = (r - q - 0.5 * sigma ** 2) / (sigma ** 2)
+        d1 = (math.log(S / K) + (r - q + 0.5 * sigma ** 2) * T) / sq
+        c_bs = S * math.exp(-q * T) * self._norm_cdf(d1) - K * math.exp(-r * T) * self._norm_cdf(d1 - sq)
+        if H <= K:
+            y = math.log(H * H / (S * K)) / sq + (1 + mu) * sq
+            c_di = (S * math.exp(-q * T) * (H / S) ** (2 * (mu + 1)) * self._norm_cdf(y)
+                    - K * math.exp(-r * T) * (H / S) ** (2 * mu) * self._norm_cdf(y - sq))
+            c_do = c_bs - c_di
+        else:
+            x1 = math.log(S / H) / sq + (1 + mu) * sq
+            y1 = math.log(H / S) / sq + (1 + mu) * sq
+            c_do = (S * math.exp(-q * T) * self._norm_cdf(x1)
+                    - K * math.exp(-r * T) * self._norm_cdf(x1 - sq)
+                    - S * math.exp(-q * T) * (H / S) ** (2 * (mu + 1)) * self._norm_cdf(y1)
+                    + K * math.exp(-r * T) * (H / S) ** (2 * mu) * self._norm_cdf(y1 - sq))
+            c_di = c_bs - c_do
+        return (c_bs, c_di, c_do)
 
     def _norm_cdf(self, x: float) -> float:
         return 0.5 * (1 + math.erf(x / math.sqrt(2)))

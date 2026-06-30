@@ -9,6 +9,13 @@ def _path_from_env(name: str, default: str) -> Path:
     return Path(os.environ.get(name, default)).expanduser().resolve()
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 def _load_env_file() -> None:
     env_path = os.environ.get("TPL_ENV_PATH")
     candidates = []
@@ -57,6 +64,17 @@ class Settings:
     cors_origins: tuple[str, ...] = ()
     api_key: str | None = None
     rate_limit_per_min: int = 0
+    # --- generation / retrieval pipeline modes (safe defaults) ------------
+    # generation_mode: "template" (deterministic, zero API) | "llm" (LLM writer).
+    # retrieval_mode:  "lexical" | "semantic" | "hybrid".
+    # embedding_provider: "local" | "openai" | "none" (only affects the vector
+    #   side; switching it requires re-ingesting the corpus, see docs).
+    # strict_validation: when an LLM rewrites an exercise, fall back to the
+    #   deterministic template if it alters any calculated number.
+    generation_mode: str = "template"
+    retrieval_mode: str = "hybrid"
+    embedding_provider: str = "local"
+    strict_validation: bool = True
     # --- billing (Stripe) — defaulted so existing callers keep working ----
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
@@ -80,13 +98,46 @@ class Settings:
             "TPL_DB_PATH",
             str(data_dir / "pricinglibrary_rag.sqlite3"),
         )
+
+        # --- high-level pipeline modes (new env names, with safe defaults) --
+        generation_mode = os.environ.get("GENERATION_MODE", "template").strip().lower()
+        retrieval_mode = os.environ.get("RETRIEVAL_MODE", "hybrid").strip().lower()
+        embedding_provider = os.environ.get("EMBEDDING_PROVIDER", "local").strip().lower()
+        strict_validation = _env_bool("GENERATION_STRICT_VALIDATION", True)
+
+        # LLM provider: prefer the new LLM_PROVIDER, fall back to legacy
+        # TPL_LLM_PROVIDER. "none" means "no LLM" -> deterministic template.
+        # When generation_mode is "template" the LLM writer is OFF regardless,
+        # so the effective provider stays "template" (zero API, safe default).
+        llm_provider_raw = (
+            os.environ.get("LLM_PROVIDER")
+            or os.environ.get("TPL_LLM_PROVIDER")
+            or "template"
+        ).strip().lower()
+        if llm_provider_raw in ("none", ""):
+            llm_provider_raw = "template"
+        effective_llm_provider = (
+            llm_provider_raw if generation_mode == "llm" else "template"
+        )
+
+        # Embedding backend: legacy TPL_EMBEDDING_BACKEND wins if set, else it is
+        # derived from EMBEDDING_PROVIDER. "none"/"local" -> the offline hashing
+        # backend; "openai" -> OpenAI embeddings (requires re-ingestion).
+        embedding_backend = os.environ.get("TPL_EMBEDDING_BACKEND")
+        if not embedding_backend:
+            embedding_backend = {
+                "local": "local-hashing",
+                "none": "local-hashing",
+                "openai": "openai",
+            }.get(embedding_provider, "local-hashing")
+
         return cls(
             data_dir=data_dir,
             db_path=db_path,
-            embedding_backend=os.environ.get("TPL_EMBEDDING_BACKEND", "local-hashing"),
+            embedding_backend=embedding_backend,
             embedding_dim=int(os.environ.get("TPL_EMBEDDING_DIM", "2048")),
             sentence_transformer_model=os.environ.get("TPL_SENTENCE_TRANSFORMER_MODEL"),
-            llm_provider=os.environ.get("TPL_LLM_PROVIDER", "openai"),
+            llm_provider=effective_llm_provider,
             openai_api_key=os.environ.get("TPL_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY"),
             openai_model=os.environ.get("TPL_OPENAI_MODEL", "gpt-4o-mini"),
             openai_base_url=os.environ.get("TPL_OPENAI_BASE_URL"),
@@ -105,6 +156,10 @@ class Settings:
             ),
             api_key=os.environ.get("TPL_API_KEY") or None,
             rate_limit_per_min=int(os.environ.get("TPL_RATE_LIMIT_PER_MIN", "0")),
+            generation_mode=generation_mode,
+            retrieval_mode=retrieval_mode,
+            embedding_provider=embedding_provider,
+            strict_validation=strict_validation,
             stripe_secret_key=os.environ.get("STRIPE_SECRET_KEY") or os.environ.get("TPL_STRIPE_SECRET_KEY"),
             stripe_webhook_secret=os.environ.get("STRIPE_WEBHOOK_SECRET") or os.environ.get("TPL_STRIPE_WEBHOOK_SECRET"),
             stripe_prices={
