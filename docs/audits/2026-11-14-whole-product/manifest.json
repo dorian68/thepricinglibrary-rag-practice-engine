@@ -1,0 +1,128 @@
+{
+  "date": "2026-11-14",
+  "scope": "Whole product CLI/API/headless audit; reports before product fixes",
+  "technical_verdict": "FAIL for global CLI coverage and registry/RFQ trust",
+  "business_verdict": "FAIL for full self-service product and public sale; conditional local bounded pilot",
+  "product_source_changed_by_audit": false,
+  "native_desktop_control": false,
+  "tested_source_commits": {
+    "frontend": "90054cee86ccfdd4b2ce2c4e2117895eab287e3b",
+    "backend": "017deff92b743850d331e6f9fd0ad4d3477fcdfe"
+  },
+  "frontend": {
+    "date": "2026-11-14",
+    "views": 175,
+    "distinct_paths": 77,
+    "intentional_invalid_paths": 5,
+    "audit_errors": 0,
+    "page_errors": 0,
+    "with_axe_violations": 118,
+    "axe_rule_view_occurrences": {
+      "color-contrast": 117,
+      "label": 4,
+      "select-name": 3,
+      "button-name": 2,
+      "scrollable-region-focusable": 2
+    },
+    "main_landmark_issues": 0,
+    "h1_count_issues": 0,
+    "horizontal_overflow_observed": 0,
+    "desktop_input": false,
+    "product_code_changed": false,
+    "wcag_conformance_claim": false
+  },
+  "local_evidence": {
+    "technical/cli-evidence.json": {
+      "sha256": "bb21a1b98a4aa7db9fb6fe537bdc7124bcc6d0dad394f395e3f91edefb96b907",
+      "bytes": 1579339,
+      "published": false
+    },
+    "technical/runtime-evidence.json": {
+      "sha256": "451226afed0537bdb90b1d60f0cc95f8520fbb8750ddeb1a32b41d80d46696e8",
+      "bytes": 151058,
+      "published": false
+    },
+    "technical/http-evidence.json": {
+      "sha256": "d0e130e26bfd9ed79824dad88607e84b815280cac92aba32d8bf08bb5fde4004",
+      "bytes": 523585,
+      "published": false
+    },
+    "technical/capability-evidence.json": {
+      "sha256": "f2a4548193a356cdd4d0548c664bead86f82149f29c2ad79bacc4f4726f7ea0b",
+      "bytes": 291204,
+      "published": false
+    },
+    "technical/numeric-evidence.json": {
+      "sha256": "cdfd276ba2e50efbc44c400d7298fe3f7e5079382489fa72f467531b0b3e5060",
+      "bytes": 473725,
+      "published": false
+    },
+    "technical/starter-artifact-evidence.json": {
+      "sha256": "a620ce89ba6db1a86feea4afe3eebdafc3eba8d070bafe5618e322e97b1f13bb",
+      "bytes": 1385,
+      "published": false
+    },
+    "frontend/evidence/route-matrix.json": {
+      "sha256": "68494bb4a3792ae8aa3517343f87f6026f8443dd6d24bc8863eddf534fd12e35",
+      "bytes": 937757,
+      "published": false
+    },
+    "frontend/evidence/navigation.json": {
+      "sha256": "4a1d2c5df43f5307ff79d9e21ccc99f22c3ef29e11c75a52234dcc3e0662583f",
+      "bytes": 25064,
+      "published": false
+    },
+    "business/verdict.json": {
+      "sha256": "12ef3a2c17285ddeb7d8618215fd3a99cc7799b33622ef53c75619e5525f15fe",
+      "bytes": 6774,
+      "published": false
+    },
+    "integrations-evidence.json": {
+      "sha256": "0eafe43a7a2ac220affd75d7be14bd10e84a574d2f0b88a1b8db710e0dae281a",
+      "bytes": 2409,
+      "published": false
+    },
+    "integrations-sources.json": {
+      "sha256": "792c34eeb1277bb8f5a74346a9291a77bc984c7c92fe0e1d073a6bcfc21c8a4d",
+      "bytes": 8289,
+      "published": false
+    }
+  },
+  "public_files": {
+    "README.md": {
+      "source": "REPORT.md",
+      "original_sha256": "4411b51e4d530fad9f3ca53dd6abfd24aa5f1601842fcd43a6dab398dd71bdc1",
+      "public_sha256": "1f1214054f1bd2f65492d9a2be2e4662d54c00cce40cd6205d99d80ead432947"
+    },
+    "technical.md": {
+      "source": "technical/technical-audit.md",
+      "original_sha256": "4495fa57a53c2f660a22ce64aa0ad57809e2750fd8b0f15739ab814a539ba720",
+      "public_sha256": "1644cdd4bfcbb9e0bc8232216be4f6708b99ae80e7e8bc99704908e88b3d976a"
+    },
+    "replay.md": {
+      "source": "technical/README.md",
+      "original_sha256": "153a127a2587fd2bd8b12f344a4a82b08a3120745f94209d0487dca286d60550",
+      "public_sha256": "b23014db146afc3018eca100c8408bcd08326c85db334f8c692c3d0349b56f7e"
+    },
+    "business.md": {
+      "source": "business/business-review.md",
+      "original_sha256": "7e9957374b45ae51559504f2a31c9a4b7b29105f00f1b19e7945b7f734343706",
+      "public_sha256": "0d6670ba3ea6764aa181e23cc4ecf9d9bd71d354582afc3cca2ea6ad8c331346"
+    },
+    "frontend.md": {
+      "source": "frontend/frontend-audit.md",
+      "original_sha256": "0ca7cf721bfa849198faa4c4cb55af651ca2161d64525d83217fc9a852d9caec",
+      "public_sha256": "049dd5e27fb157c10cda5ea6bb136334aabc4d87974effbbadf6d621b6df9daa"
+    },
+    "route-coverage.md": {
+      "source": "frontend/route-coverage.md",
+      "original_sha256": "c7f9393a86e623c96caa368a9c1f9f4496f0040abbfdcc21a39c1a9667e16633",
+      "public_sha256": "499a3b57d32e3ee954cf8e248605a0fd6eb5803952236051cac2328742d5ba52"
+    },
+    "integrations.md": {
+      "source": "integrations.md",
+      "original_sha256": "8299b5a1b2107795c356f23d347841be97bf8017585e2fbefaa265ac959e4e1b",
+      "public_sha256": "762c8d01e631a66f64506af0a967e6c84232265537a3157f41b53a0a66127a9e"
+    }
+  }
+}
