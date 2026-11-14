@@ -92,3 +92,11 @@ The CI frontend reference is currently
 frontend fixture/engine revision before triggering this backend workflow. Update
 that explicit reference when promoting a later compatible pair; for a release,
 record both exact commit SHAs to preserve the tested combination.
+
+## Paired rollback checkpoint
+
+The validated local interview pilot is recorded by the same immutable tag name,
+`tpl-interview-pilot-2026-11-14`, in both repositories. Restore that tag in each
+repository within a separate workspace, then prepare the fixtures as above. The
+tag identifies source code; private content and activity databases are managed
+separately. Details and scope are in `docs/INTERVIEW_LAB_CHECKPOINT.json`.

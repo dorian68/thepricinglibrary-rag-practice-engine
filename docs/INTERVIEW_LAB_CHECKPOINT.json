@@ -1,0 +1,27 @@
+{
+  "schema": "tpl.interview-checkpoint.v1",
+  "date": "2026-11-14",
+  "frontend": {
+    "repository": "https://github.com/dorian68/thepricinglab",
+    "implementation_commit": "5a9687b51c24d8e9db9e62f6b2f2ca8d9002ab47",
+    "baseline_commit": "fd948a5"
+  },
+  "backend": {
+    "repository": "https://github.com/dorian68/thepricinglibrary-rag-practice-engine",
+    "implementation_commit": "4af387f1bbadbcc94399a4a16f7a11d0cc037e7e",
+    "baseline_commit": "b88cd06"
+  },
+  "branch": "codex/2026-11-14-interview-lab",
+  "validation": {
+    "technical": "PASS_LOCAL",
+    "business": "PASS_LOCAL",
+    "business_reviewer_score": 94.25,
+    "score_is_reviewer_judgment_not_customer_data": true,
+    "scope": "Original English interview pilot and documented UX closure F01-F16; final documentation/fixture-LF commits may follow these implementation commits."
+  },
+  "public_deployment": false,
+  "public_sales_certified": false,
+  "rollback": "Restore a compatible frontend/backend pair in a separate workspace. Private content and activity databases are separate from source Git history.",
+  "recommended_restore_ref": "tpl-interview-pilot-2026-11-14",
+  "fixture_encoding": "LF-normalized JSON; reviewed data values unchanged; frontend manifest verifies checkout bytes"
+}
