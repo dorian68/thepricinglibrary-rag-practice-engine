@@ -25,6 +25,7 @@ event contract is still defined so sensitive tools can be added later.
 import json
 import math
 import os
+import re
 import time
 import uuid
 from typing import Any, Callable, Iterable, Iterator
@@ -516,6 +517,10 @@ def tool_set_tool_params(services: Services, args: dict) -> tuple[dict, list[dic
         return {"error": f"unknown tool '{tool}'", "known": sorted(KNOWN_TOOLS)}, []
     if not isinstance(params, dict):
         return {"error": "params must be an object"}, []
+    params=dict(params)
+    if tool=='bs-pricer':
+        for old,new,factor in [('S','spot',1),('K','strike',1),('r','riskFreeRate',.01),('q','dividendYield',.01),('sigma','volatility',.01),('T','maturityYears',1/365)]:
+            if old in params and new not in params:params[new]=params[old]*factor
     event = {
         "type": "Custom",
         "name": "app.tool.set_params",
@@ -625,6 +630,18 @@ def tool_greeks_sensitivity(services: Services, args: dict) -> tuple[dict, list[
 
 
 def tool_simulate_monte_carlo(services: Services, args: dict) -> tuple[dict, list[dict]]:
+    if isinstance(args.get('input'),dict):
+        result=run_monte_carlo(args['input']);quantiles=result['distribution']['quantiles']
+        data={'paths':[[p['spot'] for p in path['points']] for path in result['samplePaths']],
+              'n':result['run']['simulatedPaths'],'steps':result['run']['timeSteps'],
+              'terminal_mean':result['distribution']['terminalMean'],'p5':quantiles['p05'],'p95':quantiles['p95'],
+              'histogram':[{'x':row['midpoint'],'count':row['count']} for row in result['distribution']['histogram']],
+              'analysis_id':result['analysisId'],'engine_version':result['engineVersion'],'measure':result['measure'],
+              'day_count':result['conventions']['dayCount']}
+        ev=_render_event('monte_carlo_simulation_block',data)
+        summary={k:v for k,v in data.items() if k not in {'paths','histogram'}}
+        summary.update({'inputs':result['input'],'pricing':result.get('pricing')})
+        return summary,([ev] if ev else [])
     data = mc_simulation(
         args.get("S", 100), args.get("mu", 5), args.get("sigma", 20),
         args.get("T", 252), args.get("N", 400), args.get("steps", 50), args.get("seed", 7),
@@ -635,6 +652,16 @@ def tool_simulate_monte_carlo(services: Services, args: dict) -> tuple[dict, lis
 
 
 def tool_generate_payoff_scenario(services: Services, args: dict) -> tuple[dict, list[dict]]:
+    if isinstance(args.get('input'),dict):
+        from .payoff_strategy import analyze_payoff_strategy
+        result=analyze_payoff_strategy(args['input'])
+        bounds=result['bounds']
+        data={'curve':[{'x':p['terminalSpot'],'y':p['terminalPnl']} for p in result['curve']],
+              'breakevens':result['breakevens'],'net_premium':result['summary']['netEntryPremium'],
+              'max_gain':'Unlimited' if bounds['maxProfit']['kind']=='unlimited' else bounds['maxProfit']['amount'],
+              'max_loss':'Unlimited' if bounds['maxLoss']['kind']=='unlimited' else -bounds['maxLoss']['amount']}
+        ev=_render_event('payoff_chart_block',{'name':args.get('name') or 'Current strategy',**data})
+        return {'analysis_id':result['analysisId'],'inputs':result['input'],'bounds':bounds,'breakevens':result['breakevens']},([ev] if ev else [])
     legs = args.get("legs") or []
     if not isinstance(legs, list) or not legs:
         return {"error": "legs[] required"}, []
@@ -1181,9 +1208,28 @@ def _tool_call_sequence(services: Services, name: str, args: dict) -> Iterator[d
         yield ev
 
 
+def _context_ticket(raw:dict)->dict:
+    """Current lab contracts use decimal rates/years; legacy controls use %/days."""
+    existing={}
+    for old,new,factor in [('S','spot',1),('K','strike',1),('r','riskFreeRate',.01),('q','dividendYield',.01),('sigma','volatility',.01),('T','maturityYears',1/365)]:
+        if old in raw:existing[new]=raw[old]*factor
+    for key in ('spot','strike'):
+        if key in raw:existing[key]=raw[key]
+    canonical=bool(raw.get('schemaVersion') or 'maturityYears' in raw or 'timeToMaturity' in raw)
+    for key in ('riskFreeRate','dividendYield','volatility'):
+        if key in raw:existing[key]=raw[key] if canonical else raw[key]/100
+    if 'maturityYears' in raw:existing['maturityYears']=raw['maturityYears']
+    elif 'timeToMaturity' in raw:existing['maturityYears']=raw['timeToMaturity']
+    elif 'maturityDays' in raw:existing['maturityYears']=raw['maturityDays']/365
+    if 'optionType' in raw:existing['optionType']=raw['optionType']
+    return existing
+
+
 def _run_offline_agent(services: Services, payload: dict, ctx: dict) -> Iterator[dict]:
     text = _last_user_text(payload).lower()
     tool_id = ctx.get("toolId")
+    requested=_last_user_text(payload)
+    english=bool(re.search(r"answer in english|in english",requested,re.I)) or not bool(re.search(r"en fran[cç]ais|answer in french|montre|explique|corrige|ma réponse|ma reponse|échéance|parité",requested,re.I))
 
     # Intent: call-put parity demo on the BS pricer.
     if ("parit" in text or "call-put" in text or "call put" in text) and (
@@ -1191,28 +1237,56 @@ def _run_offline_agent(services: Services, payload: dict, ctx: dict) -> Iterator
     ):
         if tool_id != "bs-pricer":
             yield from _tool_call_sequence(services, "navigate", {"path": "/tools/bs-pricer"})
-        params = {"S": 100, "K": 100, "r": 2, "q": 0, "sigma": 20, "T": 180, "view": "spot"}
-        yield from _tool_call_sequence(services, "set_tool_params", {"tool": "bs-pricer", "params": params})
-        yield from _tool_call_sequence(services, "compute_black_scholes", {key: params[key] for key in ("S", "K", "r", "q", "sigma", "T")})
-        bs = black_scholes(100, 100, 2, 0, 20, 180)
-        yield from _emit_text(
-            "J'ai réglé le pricer en **at-the-money** ($S=K=100$). Observe la **parité call-put** : "
-            "$$C - P = S e^{-qT} - K e^{-rT}.$$ "
-            f"Ici $C-P = {bs['parity_lhs']}$ et $S e^{{-qT}} - K e^{{-rT}} = {bs['parity_rhs']}$ — "
-            "les deux coïncident, ce qui confirme la relation sans arbitrage. Fais varier le taux $r$ : "
-            "l'écart call−put suit la valeur actualisée du strike."
-        )
-        yield from _tool_call_sequence(services, "rag_search", {"query": "call put parity black scholes", "top_k": 5})
+        from .trusted_analytics import parse_ticket, option_analysis
+        original_text=_last_user_text(payload)
+        explicit=parse_ticket(original_text)
+        raw=ctx.get("toolParams") or {}
+        existing=_context_ticket(raw)
+        ticket={**existing,**explicit}
+        try:
+            analysis=option_analysis(ticket)
+        except (ValueError,TypeError) as exc:
+            yield from _emit_text(("Please supply the missing ticket fields; I have not changed your calculator. " if english else
+                                  "Précise les paramètres manquants ; je n'ai pas modifié le calculateur. ")+str(exc))
+            return
+        t=analysis["inputs"]
+        params={"S":t["spot"],"K":t["strike"],"r":100*t["riskFreeRate"],"q":100*t["dividendYield"],
+                "sigma":100*t["volatility"],"T":365*t["maturityYears"],"view":raw.get("view","spot")}
+        yield from _tool_call_sequence(services,"set_tool_params",{"tool":"bs-pricer","params":params})
+        yield from _tool_call_sequence(services,"compute_black_scholes",{key:params[key] for key in ("S","K","r","q","sigma","T")})
+        parity=analysis["parity"]
+        message=(f"Using your ticket unchanged: S={t['spot']}, K={t['strike']}, r={100*t['riskFreeRate']}%, q={100*t['dividendYield']}%, "
+                 f"sigma={100*t['volatility']}%, T={t['maturityYears']} years (ACT/365F). "
+                 f"Call={analysis['call']:.6f}, put={analysis['put']:.6f}. C-P={parity['lhs']:.6f}; "
+                 f"S exp(-qT)-K exp(-rT)={parity['rhs']:.6f}. "
+                 "This is a deterministic local European-model calculation, not a live quote or an external AI judgement." if english else
+                 f"Ton ticket est conservé : S={t['spot']}, K={t['strike']}, r={100*t['riskFreeRate']} %, q={100*t['dividendYield']} %, "
+                 f"volatilité={100*t['volatility']} %, T={t['maturityYears']} ans (ACT/365F). "
+                 f"Call={analysis['call']:.6f}, put={analysis['put']:.6f}. C-P={parity['lhs']:.6f} ; membre droit={parity['rhs']:.6f}. "
+                 "Calcul déterministe local du modèle européen ; aucune cotation live ni évaluation externe par IA.")
+        yield from _emit_text(message)
+
         return
 
     # Intent: Greek sensitivity (e.g. "vega quand la maturité augmente").
     if any(g in text for g in ("vega", "gamma", "theta", "delta", "rho")) and any(
-        k in text for k in ("maturit", "échéance", "echeance", "augmente", "sensib", "varie", "évolue", "evolue", "quand")
+        k in text for k in ("maturit", "échéance", "echeance", "augmente", "sensib", "varie", "évolue", "evolue", "quand", "increase", "sensitivity")
     ):
         greek = next((g for g in ("vega", "gamma", "theta", "delta", "rho") if g in text), "vega")
         param = "time" if any(k in text for k in ("maturit", "échéance", "echeance", "temps")) else (
             "vol" if "vol" in text else ("strike" if "strike" in text else "spot"))
-        yield from _tool_call_sequence(services, "greeks_sensitivity", {"greek": greek, "param": param})
+        raw=ctx.get("toolParams") or {}
+        from .trusted_analytics import parse_ticket
+        explicit=parse_ticket(requested)
+        existing=_context_ticket(raw);base={}
+        for src,dst,factor in (("spot","S",1),("strike","K",1),("riskFreeRate","r",100),("dividendYield","q",100),("volatility","sigma",100),("maturityYears","T",365)):
+            if src in existing:base[dst]=existing[src]*factor
+        for src,dst,factor in (("spot","S",1),("strike","K",1),("riskFreeRate","r",100),("dividendYield","q",100),("volatility","sigma",100),("maturityYears","T",365)):
+            if src in explicit:base[dst]=explicit[src]*factor
+        if set(base)!={"S","K","r","q","sigma","T"}:
+            yield from _emit_text("Please provide S, K, r, q, volatility and maturity; no active ticket has been changed." if english else "Précise S, K, r, q, volatilité et maturité ; le ticket actif est conservé.")
+            return
+        yield from _tool_call_sequence(services, "greeks_sensitivity", {"greek": greek, "param": param,**base})
         param_fr = {"time": "la maturité", "vol": "la volatilité", "strike": "le strike"}.get(param, "le spot")
         greek_note = {
             "delta": "le delta d'un call varie de 0 à 1 avec le spot : c'est ton ratio de couverture en actions.",
@@ -1222,20 +1296,34 @@ def _run_offline_agent(services: Services, payload: dict, ctx: dict) -> Iterator
             "rho": "le rho mesure la sensibilité au taux : faible en général, sauf sur longue maturité.",
         }.get(greek, "")
         yield from _emit_text(
+            (f"The computed {greek} sensitivity is shown against {param}, using your supplied ticket. This is a local model sensitivity, not a forecast." if english else
             f"Voici l'évolution du **{greek}** en fonction de {param_fr}. "
             f"Lis la courbe ci-dessus : {greek_note} Le pic et le signe te disent où la sensibilité est la plus "
-            "forte et dans quel sens couvrir. Demande-moi un autre Greek ou un autre paramètre."
+            "forte et dans quel sens couvrir. Demande-moi un autre Greek ou un autre paramètre.")
         )
         return
 
     # Intent: Monte Carlo simulation.
     if "monte" in text or "simulation" in text or "trajectoir" in text:
-        yield from _tool_call_sequence(services, "simulate_monte_carlo", {"S": 100, "mu": 5, "sigma": 20, "T": 252, "N": 400})
-        yield from _emit_text(
-            "Simulation GBM ci-dessus : quelques trajectoires, la **distribution terminale** et un "
-            "intervalle de confiance à 90% (p5–p95). Le prix d'une option s'estime comme la moyenne "
-            "actualisée du payoff sur ces trajectoires ; la précision croît en $1/\\sqrt{N}$."
-        )
+        from .trusted_analytics import parse_ticket
+        explicit=parse_ticket(requested);raw=ctx.get("toolParams") or {}
+        if raw.get('schemaVersion')==MONTE_CARLO_INPUT_SCHEMA:
+            ticket={**raw,**{k:v for k,v in explicit.items() if k in raw}}
+            yield from _tool_call_sequence(services,'simulate_monte_carlo',{'input':ticket})
+            yield from _emit_text('The seeded canonical Monte Carlo run keeps your existing inputs, probability measure, payoff and sampling method. Terminal percentiles describe simulated outcomes; the pricing standard error uses the configured independent sampling units.' if english else 'Le calcul Monte Carlo canonique conserve les paramètres, la mesure, le payoff et la méthode du ticket actif. Les percentiles décrivent les scénarios simulés ; l’erreur de prix utilise les unités indépendantes du tirage.')
+            return
+        ticket={**_context_ticket(raw),**explicit}
+        S=ticket.get('spot');sigma=100*ticket['volatility'] if ticket.get('volatility') is not None else None
+        T=365*ticket['maturityYears'] if ticket.get('maturityYears') is not None else None
+        if S is None or sigma is None or T is None:
+            yield from _emit_text("Supply spot, annual volatility and maturity before simulating; I have kept the current ticket unchanged." if english else "Précise spot, volatilité annuelle et maturité ; je conserve le ticket actif.")
+            return
+        mu_match=re.search(r"\bmu\s*[=:]?\s*([-+]?\d+(?:\.\d+)?)\s*(%)?",requested,re.I)
+        mu=float(mu_match.group(1))*(1 if mu_match.group(2) else 100) if mu_match else raw.get("mu",0)
+        yield from _tool_call_sequence(services,"simulate_monte_carlo",{"S":S,"mu":mu,"sigma":sigma,"T":T,"N":400,"seed":7})
+        yield from _emit_text(("The seeded physical-measure GBM simulation uses your spot, volatility and horizon. Drift is zero unless supplied; the terminal p5/p95 interval is a simulated percentile range, not a confidence interval for a mean or a price forecast." if english else
+                              "Simulation GBM sous mesure physique avec ton spot, volatilité et horizon. La dérive est nulle sauf indication ; p5/p95 est un intervalle de percentiles simulés, pas un intervalle de confiance sur la moyenne ni une prévision de prix."))
+
         return
 
     # Intent: structured product payoff.
@@ -1243,19 +1331,32 @@ def _run_offline_agent(services: Services, payload: dict, ctx: dict) -> Iterator
         kind = "autocall" if "autocall" in text else (
             "capital_protected" if "capital" in text else (
                 "reverse_convertible" if "reverse" in text else "autocall"))
-        params = {"barrier": 60, "coupon": 8}
+        current=ctx.get("toolParams") or {}
+        params={"barrier":current.get("barrier",60),"coupon":current.get("coupon",8)}
+        for key in ("barrier","coupon"):
+            match=re.search(r"\b"+key+r"\s*[=:]?\s*(\d+(?:\.\d+)?)",requested,re.I)
+            if match:params[key]=float(match.group(1))
         yield from _tool_call_sequence(services, "build_structured_product_payoff", {"kind": kind, "params": params})
         yield from _emit_text(
+            ("This is a disclosed simplified terminal-payoff illustration, not a path-dependent autocall price. Coupon/barrier values are shown in the block; use the RFQ GBM model for actual discrete observation and coupon memory." if english else
             "Voici le payoff simplifié à maturité (ci-dessus) avec les scénarios de remboursement. "
             "Pour un **autocall** : coupon si le sous-jacent finit au-dessus du niveau initial, capital "
             "protégé tant que la barrière (60%) n'est pas franchie à la baisse, sinon perte en capital. "
-            "Dis-moi les paramètres (barrière, coupon) et je régénère."
+            "Dis-moi les paramètres (barrière, coupon) et je régénère.")
         )
         return
 
     # Intent: option strategy payoff. Parse WHICH strategy was asked (not always a
     # bull call spread) so "long straddle" no longer renders a mislabeled spread.
     if "payoff" in text or "spread" in text or "straddle" in text or "strangle" in text or "butterfly" in text:
+        current=ctx.get('toolParams') or {}
+        if current.get('legs') and not re.search(r'\b(?:replace|new example|create|build|remplace|nouvel exemple|crée)\b',text):
+            if all('strike' in leg for leg in current['legs']):
+                yield from _tool_call_sequence(services,'generate_payoff_scenario',{'name':'Current strategy — unchanged','input':current})
+            else:
+                yield from _tool_call_sequence(services,'generate_payoff_scenario',{'name':'Current strategy — unchanged','legs':current['legs']})
+            yield from _emit_text('Your current strategy and manual/model premium choices are retained. The chart uses these exact legs; no example portfolio has replaced your ticket.' if english else 'La stratégie active et les choix de primes sont conservés. Le graphique utilise ces mêmes jambes ; aucun portefeuille d’exemple ne remplace le ticket.')
+            return
         if tool_id != "payoff":
             yield from _tool_call_sequence(services, "navigate", {"path": "/tools/payoff"})
         if "straddle" in text:
@@ -1301,30 +1402,26 @@ def _run_offline_agent(services: Services, payload: dict, ctx: dict) -> Iterator
                     "par la prime encaissée. Payoff $\\max(S-100,0)-\\max(S-120,0)$ moins la prime nette.")
         yield from _tool_call_sequence(services, "set_tool_params", {"tool": "payoff", "params": {"legs": legs}})
         yield from _tool_call_sequence(services, "generate_payoff_scenario", {"name": name, "legs": legs})
-        yield from _emit_text("Voici un " + desc + " Dis-moi les strikes ou une autre stratégie et je régénère.")
+        yield from _emit_text((f"Displayed named example: {name}. The block discloses the exact example strikes and manual premiums; these are teaching inputs, not live option prices." if english else "Voici un " + desc + " Les primes et strikes sont des données d'exemple, pas des cotations live."))
         return
 
     # Intent: grade the user's answer.
-    if "corrige" in text or "ma réponse" in text or "ma reponse" in text or "vérifie ma" in text:
-        yield from _tool_call_sequence(services, "grade_user_answer", {
-            "verdict": "partial",
-            "correct": ["Tu as identifié le bon concept."],
-            "wrong": ["Mode hors-ligne : je ne peux pas évaluer finement sans le LLM."],
-            "improve": ["Active le mode OpenAI pour une correction détaillée et personnalisée."],
-            "solution": "Relance avec la clé OpenAI configurée pour une correction complète.",
-        })
-        yield from _emit_text("Voici un retour préliminaire (correction détaillée disponible en mode OpenAI).")
+    if any(word in text for word in ("corrige","ma réponse","ma reponse","vérifie ma","grade my","review my answer","check my answer")):
+        yield from _emit_text("This deterministic offline assistant has not graded your written answer. Submit the numerical task in Interview Lab for a verified numeric check, then use the reasoning rubric for self-review. No expert score is claimed." if english else
+                              "Cet assistant déterministe n'a pas évalué ta réponse écrite. Le Lab vérifie les réponses numériques ; la grille de raisonnement reste une auto-évaluation, sans note experte.")
+
         return
 
     # Intent: generate an exercise.
     if "exercice" in text or "exercise" in text or "entra" in text or "quiz" in text:
         topic = ctx.get("concept") or ctx.get("pageTitle") or "pricing d'options"
         yield from _tool_call_sequence(
-            services, "generate_exercise", {"topic": topic, "difficulty": "intermediate", "language": ctx.get("lang", "fr")}
+            services, "generate_exercise", {"topic": topic, "difficulty": "intermediate", "language": "en" if english else "fr"}
         )
         yield from _emit_text(
+            ("The generated practice case contains a computed correction and a self-review rubric. Read the task before revealing the correction; no automatic expert reasoning grade is provided." if english else
             "J'ai généré un exercice pratique avec un corrigé chiffré vérifié. Ouvre le bloc ci-dessus, "
-            "tente-le, puis demande-moi de corriger ta réponse ou d'expliquer une étape."
+            "tente-le, puis demande-moi d'expliquer une étape. Le raisonnement reste auto-évalué.")
         )
         return
 
@@ -1332,10 +1429,11 @@ def _run_offline_agent(services: Services, payload: dict, ctx: dict) -> Iterator
     query = _last_user_text(payload) or (ctx.get("concept") or ctx.get("pageTitle") or "finance de marché")
     yield from _tool_call_sequence(services, "rag_search", {"query": query, "top_k": 5})
     yield from _emit_text(
+        ("The library search results are shown above, including any absence of usable sources. This is deterministic offline retrieval, not an external LLM answer. Ask for a calculation with explicit inputs, an exercise or a specific supported concept." if english else
         "Voici ce que je trouve dans la bibliothèque sur ce point (sources ci-dessus). "
         "Mode hors-ligne actif (pas de clé OpenAI) : je m'appuie sur le RAG local et les calculs vérifiés. "
         "Pose-moi une question précise sur le concept de cette page, demande un exercice, ou dis "
-        "« montre-moi la parité call-put » et je piloterai l'outil."
+        "« montre-moi la parité call-put » en donnant les paramètres du ticket.")
     )
 
 

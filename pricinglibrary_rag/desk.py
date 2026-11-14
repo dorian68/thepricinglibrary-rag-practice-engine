@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import re
+import json
 from dataclasses import dataclass
 
 from .calculators import PracticeCalculator
@@ -22,21 +23,39 @@ from .llm import LocalLLM
 # --- deterministic request understanding (auditable, not LLM-invented) ------
 def parse_request(text: str) -> dict:
     t = (text or "").lower()
+    from .trusted_analytics import parse_ticket
+    supplied={}
+    if (text or "").lstrip().startswith("{"):
+        try:
+            supplied=json.loads(text)
+            if not isinstance(supplied,dict):supplied={}
+        except ValueError:pass
+    if supplied.get("ticket") is not None and not isinstance(supplied["ticket"],dict):raise ValueError("ticket must be an object.")
+    if supplied.get("autocall") is not None and not isinstance(supplied["autocall"],dict):raise ValueError("autocall must be an object.")
+    ticket={**parse_ticket(text),**(supplied.get("ticket") or {})}
     underlying, factor = "Crude Oil (WTI)", "oil"
-    if re.search(r"\bbtc\b|bitcoin|\beth\b|ether|crypto|deribit|altcoin", t):
+    if re.search(r"euro\s*stoxx|stoxx\s*50|sx5e",t):
+        underlying,factor="Euro Stoxx 50","equity"
+    elif re.search(r"s&p\s*500|\bspx\b",t):
+        underlying,factor="S&P 500","equity"
+    elif re.search(r"\bbtc\b|bitcoin|\beth\b|ether|crypto|deribit|altcoin", t):
         underlying = "Ethereum (ETH)" if re.search(r"\beth\b|ether", t) else "Bitcoin (BTC)"
         factor = "crypto"
     elif re.search(r"p[ée]trole|oil|wti|brent|crude|baril", t):
-        underlying, factor = "Crude Oil (WTI)", "oil"
+        underlying, factor = ("Brent Crude", "oil") if "brent" in t else ("Crude Oil (WTI)", "oil")
+    elif re.search(r"\beur\s*[/_-]?\s*usd\b",t):
+        underlying,factor="EUR/USD","fx"
+    elif re.search(r"\bgold\b|\bor\b|once",t):
+        underlying,factor="Gold","gold"
     elif re.search(r"inflation|cpi", t):
         underlying, factor = "Inflation (CPI)", "inflation"
     elif re.search(r"credit|spread|cds|d[ée]faut|default", t):
         underlying, factor = "Credit Spreads", "credit"
-    elif re.search(r"taux|rate|rates|bond|obligation|swap|coupon|callable", t):
+    elif re.search(r"\btaux\b|\brates?\b|bond|obligation|swap|callable", t):
         underlying, factor = "US Rates (10Y)", "rates"
     elif re.search(r"\bgold\b|\bor\b|once", t):
         underlying, factor = "Gold", "gold"
-    elif re.search(r"eur|usd|fx|change|devise|dollar", t):
+    elif re.search(r"\beur\s*[/_-]?\s*usd\b|\beur\b|\busd\b|\bfx\b|change|devise|dollar", t):
         underlying, factor = "EUR/USD", "fx"
     m_month = re.search(r"(\d+)\s*(mois|month)", t)
     m_year = re.search(r"(\d+)\s*(ans?|years?|y\b)", t)
@@ -58,9 +77,14 @@ def parse_request(text: str) -> dict:
     months = int(re.search(r"\d+", horizon).group(0)) if re.search(r"\d+", horizon) else 5
     if "Years" in horizon:
         months *= 12
+    if "maturityYears" in ticket:
+        months=float(ticket["maturityYears"])*12;horizon=f"{ticket['maturityYears']} Years"
+    if supplied.get("underlying"):underlying=str(supplied["underlying"])
     return {"underlying": underlying, "factor": factor, "horizon": horizon,
             "view": view, "intention": intention, "objective": "Protection / Opportunity",
-            "months": months}
+            "months": months,"ticket":ticket,"autocall":supplied.get("autocall") or {},
+            "riskLimit":ticket.get("riskLimit",supplied.get("riskLimit")),
+            "assumption_notice":"Unspecified market inputs use explicitly disclosed educational defaults, not live quotes."}
 
 
 def _norm_cdf(x: float) -> float:
@@ -74,23 +98,13 @@ def bs_call(S: float, K: float, r: float, sigma: float, T: float) -> float:
 
 
 def price_best_idea(parsed: dict) -> dict:
-    """Deterministic pricer for the headline idea — numbers are auditable."""
-    T = max(parsed["months"], 1) / 12
-    if parsed["factor"] in ("oil", "fx", "gold", "inflation"):
-        S = K = 80.0
-        prem = bs_call(S, K, 0.04, 0.1341, T)
-        return {"product": "WTI Call Option" if parsed["factor"] == "oil" else "Vanilla Call Option",
-                "kind": "call", "est_price": round(prem, 2), "unit": "/ bbl" if parsed["factor"] == "oil" else "",
-                "break_even": round(K + prem, 2), "max_loss": round(prem * 100), "max_profit": "Unlimited",
-                "strike": K, "vol": 0.1341, "maturity_y": round(T, 3)}
-    if parsed["factor"] == "rates":
-        return {"product": "Payer Swap / Cap", "kind": "swap", "est_price": 0.0, "unit": "/ par",
-                "break_even": "—", "max_loss": "Limited", "max_profit": "Unlimited"}
-    if parsed["factor"] == "credit":
-        return {"product": "Buy CDS Protection", "kind": "cds", "est_price": 1.20, "unit": "%",
-                "break_even": "—", "max_loss": "Limited", "max_profit": "Unlimited"}
-    return {"product": "Vanilla Option", "kind": "call", "est_price": 3.45, "unit": "",
-            "break_even": 83.45, "max_loss": 345, "max_profit": "Unlimited"}
+    """Legacy headline adapter delegates to the same computed RFQ pipeline."""
+    from .desk_agents import get_floor
+    result=get_floor().run(parsed)
+    p=result['pricing_result'];s=result['product_spec']
+    return {'product':s['type'],'kind':s['kind'],'est_price':p['theoretical_price'],'unit':p.get('unit',''),
+            'break_even':p.get('break_even'),'max_loss':p.get('max_loss'),'max_profit':p.get('max_profit'),
+            'calculation':p.get('calculation'),'maturity_y':s.get('maturity_years')}
 
 
 # --- the agents -------------------------------------------------------------
@@ -116,7 +130,7 @@ AGENT_SPECS = [
     AgentSpec("trader", "Trader Agent", "Quoting",
               "You are the TRADER / market maker. In one sentence, explain how you turn the theoretical price into a bid/ask (spread, inventory, hedge cost). Do not invent the theoretical price."),
     AgentSpec("risk", "Risk Manager", "Validating",
-              "You are the RISK manager. In one sentence, state the dominant risk (DV01, vega, gap, CS01...) and whether the quote is within limits (assume GREEN unless extreme)."),
+              "You are the RISK manager. Restate only the supplied computed scenario risk and limit status. If no limit is supplied, say NOT_ASSESSED. Never invent a limit or an approval."),
     AgentSpec("report", "Report Agent", "Preparing",
               "You are the REPORTING agent. In one sentence, summarise the desk's answer for the client, and add that this is an educational simulation, not investment advice."),
 ]
@@ -144,7 +158,7 @@ class DeskOrchestrator:
             out = f"[{spec.name} unavailable: {exc}]"
         return out.split("\n")[0][:280] or _offline_line(spec.key, context)
 
-    def run(self, query: str) -> dict:
+    def run(self, query: str, room=None) -> dict:
         from .desk_agents import get_floor
         from .desk_state import get_room
         from .tool_registry import get_tool_registry
@@ -154,10 +168,11 @@ class DeskOrchestrator:
         # Route the RFQ to the right SPECIALISED desk; that desk's role agents
         # (sales -> structurer -> quant -> ... -> trader -> risk) collaborate,
         # each invoking its own tools. The room provides the live market.
-        try:
-            room = get_room()
-        except Exception:  # noqa: BLE001
-            room = None
+        if room is None:
+            try:
+                room = get_room()
+            except Exception:  # noqa: BLE001
+                room = None
         floor = get_floor()
         fr = floor.run(parsed, room=room)
 
@@ -177,14 +192,16 @@ class DeskOrchestrator:
                 spec_line = AGENT_SPECS_BY_ROLE.get(a["role"].lower())
                 if spec_line:
                     try:
-                        a["output"] = self.llm.generate(
+                        a["narration"] = self.llm.generate(
                             f"{spec_line}\nDesk: {a['desk']}.\nDeterministic result: {a['output']}\nYour one-line desk note:",
                             max_tokens=80).strip().split("\n")[0][:280] or a["output"]
+                        a['narration_notice']='Optional unverified language-model narration; computed output remains the financial source of truth.'
                     except Exception:  # noqa: BLE001
                         pass
         registry_report = get_tool_registry().coverage_report()
         return {
             "query": query,
+            "execution_mode":"deterministic_local" if getattr(self.llm,"name","")=="template" else "deterministic_pricing_with_optional_llm_narration",
             "parsed": {k: parsed[k] for k in ("underlying", "horizon", "view", "intention", "objective", "factor")},
             "desk": fr["desk"],
             "pricing": pricing_flat,
@@ -210,7 +227,7 @@ def _offline_line(key: str, context: str) -> str:
         "quant": "Model: Black-Scholes with constant vol as a first, auditable approximation; revisit for path-dependence.",
         "pricing": "Pricer returned the figure above; it is the discounted risk-neutral expectation of the payoff.",
         "trader": "Quote built by adding a bid/ask spread around the theoretical price for inventory and hedge cost.",
-        "risk": "Dominant risk identified; DV01/vega within limits — status GREEN for this indicative size.",
+        "risk": "No supplied limit has been verified by this narration helper; no risk approval is issued.",
         "report": "Summary prepared for the client. Educational simulation only, not investment advice.",
     }
     return lines.get(key, "Agent step completed.")

@@ -170,6 +170,9 @@ def _corpus_reference_anchors_verified(slug: str) -> bool:
 
 def audit_one(path: Path, threshold: int = 98) -> dict:
     text = path.read_text(encoding="utf-8", errors="ignore")
+    if re.search(r"(?m)^language:\s*en\s*$", text) or re.search(r"(?m)^## Written course\s*$", text):
+        from audit_english_course_quality import audit_english_one
+        return audit_english_one(path, threshold)
     public_text = _public_course_markdown(text)
     # Learner-facing metrics must ignore archived/replaced markdown blocks.
     # Otherwise a course with one visible quiz plus one commented legacy quiz
@@ -381,7 +384,10 @@ def audit_one(path: Path, threshold: int = 98) -> dict:
 
 
 def audit_dir(course_dir: Path, threshold: int) -> dict:
-    files = sorted(p for p in course_dir.glob("*.md") if not p.name.startswith("_"))
+    # The private directory's checked-in confidentiality README is repository
+    # documentation, not a thirteenth paid lesson. Actual course Markdown keeps
+    # the same strict gate; only this conventional documentation file is omitted.
+    files = sorted(p for p in course_dir.glob("*.md") if not p.name.startswith("_") and p.name.lower() != "readme.md")
     if not files:
         return {
             "course_dir": str(course_dir),
@@ -418,9 +424,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Strict audit of Hull-level course quality.")
     parser.add_argument("--dir", default=str(DEFAULT_DIR))
     parser.add_argument("--threshold", type=int, default=98)
+    parser.add_argument("--corpus-db", default=str(DEFAULT_CORPUS_DB), help="Read-only source corpus used to verify exact locators")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
-
+    globals()["DEFAULT_CORPUS_DB"] = Path(args.corpus_db).resolve()
     report = audit_dir(Path(args.dir).resolve(), threshold=args.threshold)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))

@@ -74,9 +74,17 @@ jobs:
             tests/test_binomial.py tests/test_bond.py tests/test_monte_carlo.py \
             tests/test_monte_carlo_compat.py tests/test_payoff_strategy.py \
             tests/test_realized_volatility.py tests/test_vol_surface.py \
-            tests/test_yield_curve.py
+            tests/test_yield_curve.py tests/test_learner_cli.py \
+            tests/test_learner_transport.py tests/test_cli_auth.py \
+            tests/test_learning_workflows.py tests/test_practice_references.py \
+            tests/test_course_publication.py tests/test_english_courses.py \
+            tests/test_trust_hardening.py
       - name: Run the real API interview journey with isolated signed learners
         run: python scripts/smoke_interview_lab.py --output reports/interview_lab_ci_smoke.json
+      - name: Check true tool capabilities and paper contracts without providers
+        run: python scripts/smoke_trusted_pricing.py --output reports/trusted_pricing_ci_smoke.json
+      - name: Verify the packaged learner client outside the checkout
+        run: python scripts/check_learner_package.py
       - name: Build the code-only API image without publishing it
         run: docker build --no-cache -t tpl-backend-ci .
       - name: Preserve the scoped CI evidence
@@ -84,7 +92,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: public-backend-code-evidence
-          path: Tools/pricinglibrary_rag_backend/reports/interview_lab_ci_smoke.json
+          path: |
+            Tools/pricinglibrary_rag_backend/reports/interview_lab_ci_smoke.json
+            Tools/pricinglibrary_rag_backend/reports/trusted_pricing_ci_smoke.json
+            reports/product-hardening-2026-11-14/cli-package-proof.json
           if-no-files-found: ignore
 
 # This intentionally is not production_check.py. That operator release gate

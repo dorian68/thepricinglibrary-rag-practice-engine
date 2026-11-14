@@ -27,4 +27,6 @@ research/artifacts/
 generated*/
 pricinglibrary_rag/course_scripts/*
 !pricinglibrary_rag/course_scripts/README.md
+.learner-fixtures/
+*.private.json
 

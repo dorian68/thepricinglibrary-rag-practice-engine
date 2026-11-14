@@ -465,7 +465,7 @@ def theory_block_markdown(topic_key: str) -> str:
             "resultats cles (forme fermee, theoreme), une intuition demontree et "
             "un piege theorique, en citant une source faisant autorite."
         )
-    return f"_[genere - theorie, formules verifiees par un professionnel]_\n\n{body}"
+    return f"_[genere - theorie et formules pedagogiques; exemples numeriques controles par le moteur deterministe, sans attestation humaine]_\n\n{body}"
 
 
 def worked_example_markdown(topic_key: str, calculator: PracticeCalculator | None = None) -> str:

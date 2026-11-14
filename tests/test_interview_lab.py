@@ -109,6 +109,58 @@ def test_public_catalog_and_real_preview_without_answer_or_identity_leak(lab):
     assert client.get("/interview/state",headers=headers()).json()["attempts"]==[]
 
 
+def test_dashboard_projects_interview_without_fabricated_legacy_scores_or_private_answers(lab):
+    client, services, headers = lab
+    signed = headers()
+    before = client.get("/platform/progress/alice", headers=signed)
+    assert before.status_code == 200
+    assert before.json()["interview"]["attempt_count"] == 0
+    with sqlite3.connect(services.settings.db_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM interview_profiles").fetchone()[0] == 0
+    first = client.post("/interview/attempts", json=_body(), headers=signed).json()["attempt"]
+    client.post("/interview/attempts", json=_body(request_id="dashboard-retry-001"), headers=signed)
+    review = {"criteria": {"assumptions": True, "decision": True, "limitations": False},
+              "notes": "Private reasoning must not appear in the dashboard DTO.",
+              "client_request_id": "dashboard-review-001"}
+    assert client.post(f"/interview/attempts/{first['id']}/review", json=review, headers=signed).status_code == 200
+    dashboard = client.get("/platform/progress/alice", headers=signed).json()
+    summary = dashboard["interview"]
+    assert dashboard["events"] == 0 and dashboard["avg_score"] is None
+    assert summary["attempt_count"] == 2 and summary["case_count"] == 1
+    assert summary["numerical_pass_count"] == summary["independent_check_count"] == 1
+    assert summary["reasoning_review_count"] == 1 and summary["last_activity_at"]
+    assert summary["resume"] == {"case_id": "call-quote", "variant": "primary", "phase": "feedback",
+                                 "path": "/interview/call-quote?variant=primary"}
+    assert not summary["certified_mastery"]
+    assert "Private reasoning" not in json.dumps(dashboard) and REASONING not in json.dumps(dashboard)
+    assert client.get("/platform/progress/alice", headers=headers("bob")).status_code == 403
+    assert client.get("/platform/progress/bob", headers=headers("bob")).json()["interview"]["attempt_count"] == 0
+
+
+def test_dashboard_does_not_turn_corrected_retry_into_independent_success(lab):
+    client, _, headers = lab
+    signed = headers()
+    body = _body()
+    body["answers"]["delta"] = 0
+    client.post("/interview/attempts", json=body, headers=signed)
+    client.post("/interview/attempts", json=_body(request_id="dashboard-corrected-retry"), headers=signed)
+    client.post("/interview/attempts", json=_body(variant="transfer", request_id="dashboard-put-transfer"), headers=signed)
+    summary = client.get("/platform/progress/alice", headers=signed).json()["interview"]
+    assert summary["attempt_count"] == 3 and summary["case_count"] == 1
+    assert summary["numerical_pass_count"] == 2 and summary["independent_check_count"] == 1
+    assert summary["resume"]["variant"] == "transfer"
+
+
+def test_legacy_platform_only_progress_read_does_not_create_interview_records(tmp_path):
+    from pricinglibrary_rag.platform_store import PlatformStore
+
+    store = PlatformStore(tmp_path / "legacy.sqlite3")
+    result = store.progress_summary("legacy-owner")
+    assert result["interview"]["event_count"] == 0 and result["interview"]["resume"] is None
+    with sqlite3.connect(store.db_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM sqlite_master WHERE name='interview_profiles'").fetchone()[0] == 0
+
+
 def test_signed_pilot_does_not_require_paid_plan_but_paid_courses_remain_closed(lab):
     client,services,headers=lab
     assert client.get("/interview/cases/quote-memo",headers=headers()).status_code==200

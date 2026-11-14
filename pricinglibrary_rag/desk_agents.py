@@ -19,12 +19,15 @@ critical numbers come from deterministic pricers, never invented by an LLM.
 from __future__ import annotations
 
 import math
+import re
+from copy import deepcopy
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Callable
 
 from .desk_state import bs
 from .tool_registry import DESK_ROLES, role_tool_names
+from .trusted_analytics import option_analysis, autocall_analysis, number, swap_analysis, cds_analysis
 
 
 def _ncdf(x: float) -> float:
@@ -53,7 +56,8 @@ class Agent(ABC):
 
 
 def _log(ctx: dict, agent: "Agent", tool: str, data) -> None:
-    ctx.setdefault("audit", []).append({"agent": agent.name, "desk": agent.desk, "tool": tool, "ok": data is not None})
+    ctx.setdefault("audit", []).append({"agent": agent.name, "desk": agent.desk, "tool": tool, "ok": data is not None,
+                                      "execution_path":"local_desk_helper","registry_adapter_executed":False})
 
 
 # ============================ ROLE AGENTS ==================================
@@ -89,8 +93,8 @@ class MarketDataAgent(Agent):
     def act(self, ctx):
         snap = self.kit.market_snapshot(ctx.get("room"))
         ctx["market_snapshot"] = snap
-        _log(ctx, self, self.tools[0] if self.tools else "load_market", snap)
-        return {"output": f"Loaded {self.desk} market data ({', '.join(snap.get('curves', []))}); quality {snap.get('data_quality')}.", "data": snap}
+        _log(ctx, self, "simulated_teaching_snapshot", snap)
+        return {"output": f"Using {self.desk} teaching inputs ({', '.join(snap.get('curves', []))}); live-data quality is not assessed.", "data": snap}
 
 
 class QuantAgent(Agent):
@@ -110,6 +114,10 @@ class PricingAgent(Agent):
 
     def act(self, ctx):
         pricing = self.kit.price(ctx["product_spec"], ctx.get("market_snapshot", {}), ctx.get("room"))
+        _sync_contract_spec(ctx['product_spec'],pricing)
+        spec=ctx['product_spec'];horizon=f"{spec['maturity_years']:.12g} Years"
+        ctx['parsed'].update({'underlying':spec['underlying'],'horizon':horizon,'months':12*spec['maturity_years']})
+        ctx['rfq'].update({'underlying':spec['underlying'],'horizon':horizon})
         ctx["pricing_result"] = pricing
         _log(ctx, self, "price_product", pricing)
         return {"output": f"Priced via the {self.desk} engine: theoretical {pricing['theoretical_price']} {pricing.get('unit','')}.", "data": pricing}
@@ -134,7 +142,8 @@ class RiskAgent(Agent):
         risk = self.kit.risk(ctx["product_spec"], ctx["pricing_result"])
         ctx["risk"] = risk
         _log(ctx, self, "compute_risk", risk)
-        return {"output": f"Risk: dominant {risk['dominant_risk']}, status {risk['status']} ({int(risk['limit_usage']*100)}% of limit).", "data": risk}
+        detail="No risk limit was supplied; no approval is issued." if risk['limit_usage'] is None else f"The supplied scenario uses {risk['limit_usage']*100:.1f}% of the supplied limit; no production approval is issued."
+        return {"output": f"Dominant risk: {risk['dominant_risk']}. {detail}", "data": risk}
 
 
 class ReportAgent(Agent):
@@ -157,6 +166,54 @@ ROLE_CLASSES = [SalesAgent, StructurerAgent, MarketDataAgent, QuantAgent,
 
 
 # ============================ DESK KITS ====================================
+def _sync_contract_spec(spec:dict,pricing:dict)->None:
+    """Describe the validated contract that was actually priced, not a preset.
+
+    Moneyness uses intrinsic spot (or forward for Black-76), not delta or an
+    invented 'near ATM' tolerance. The input snapshot is identical in both DTOs.
+    """
+    calculation=pricing.get('calculation') or {};inputs=calculation.get('inputs')
+    if not isinstance(inputs,dict):raise ValueError('Computed contract inputs are required to describe an RFQ.')
+    spec['inputs']=deepcopy(inputs);spec['maturity_years']=inputs['maturityYears'];spec['maturityYears']=inputs['maturityYears']
+    spec['currency']=inputs['currency']
+    tenor=f"{inputs['maturityYears']:.12g}Y"
+    if spec['kind']=='option':
+        kind=inputs['optionType'];strike=inputs['strike']
+        basis='forward' if 'Black-76' in calculation.get('model','') else 'spot'
+        underlying=inputs[basis];atm=math.isclose(underlying,strike,rel_tol=1e-10,abs_tol=1e-12)
+        intrinsic=underlying-strike if kind=='call' else strike-underlying
+        moneyness='ATM' if atm else 'ITM' if intrinsic>0 else 'OTM'
+        spec.update({'optionType':kind,'option_type':kind,'strike':strike,'spot':inputs['spot'],
+                     'volatility':inputs['volatility'],'riskFreeRate':inputs['riskFreeRate'],
+                     'dividendYield':inputs['dividendYield'],'moneyness':moneyness,'moneyness_basis':basis,
+                     'strike_over_underlying':strike/underlying})
+        if basis=='forward':spec['forward']=inputs['forward']
+        spec['type']=f"{spec['underlying']} European {kind.capitalize()} - K {strike:.12g}, {tenor}, {moneyness} by {basis}"
+        symbol='F_T' if basis=='forward' else 'S_T'
+        payoff=f'max({symbol} - K, 0)' if kind=='call' else f'max(K - {symbol}, 0)'
+        spec['payoff_description']=f"quantity * {payoff}; K={strike:.12g}, European exercise at T={inputs['maturityYears']:.12g} years"
+    elif spec['kind']=='swap':
+        direction=inputs['direction']
+        spec.update({'direction':direction,'fixedRate':inputs['fixedRate'],'riskFreeRate':inputs['riskFreeRate']})
+        spec['underlying']=f"{inputs['currency']} rates ({inputs['maturityYears']:.12g}Y)"
+        spec['type']=f"{inputs['currency']} {direction.capitalize()} Swap - {tenor}, fixed {inputs['fixedRate']*100:.12g}%"
+        spec['payoff_description']='notional * annuity * '+('(fixed - par)' if direction=='receiver' else '(par - fixed)')
+    elif spec['kind']=='cds':
+        spec.update({key:inputs[key] for key in ('spread','coupon','recovery','riskFreeRate')})
+        spec['position']='protection_buyer'
+        spec['type']=f"{spec['underlying']} CDS Protection Buyer - {tenor}, fixed premium {inputs['coupon']*100:.12g}%"
+        spec['payoff_description']=f"protection buyer receives (1 - recovery) * notional on default, pays fixed annual premium {inputs['coupon']*100:.12g}%"
+    elif spec['kind']=='exotic':
+        fields=('couponRate','couponBarrier','autocallBarrier','protectionBarrier','observationsPerYear','referenceSpot','spot')
+        spec.update({key:inputs[key] for key in fields});spec['coupon_memory']=True
+        spec['observation_times_years']=deepcopy(calculation['observation_times_years'])
+        spec['type']=f"{spec['underlying']} Autocall (memory coupon) - {tenor}, coupon {inputs['couponRate']*100:.12g}% p.a."
+        spec['payoff_description']=(f"{inputs['observationsPerYear']} observations/year; memory coupon {inputs['couponRate']*100:.12g}% p.a.; "
+            f"autocall {inputs['autocallBarrier']*100:.12g}%, coupon barrier {inputs['couponBarrier']*100:.12g}%, terminal protection barrier {inputs['protectionBarrier']*100:.12g}% of reference spot")
+    summary={key:deepcopy(spec[key]) for key in ('type','kind','underlying','currency','maturityYears','optionType','strike','spot','forward','moneyness','moneyness_basis','quantity','notional','notional_currency','direction','fixedRate','coupon','recovery','couponRate','couponBarrier','autocallBarrier','protectionBarrier','observationsPerYear') if key in spec}
+    spec['contract_summary']=summary;pricing['contract_summary']=deepcopy(summary)
+
+
 @dataclass
 class DeskKit:
     desk: str
@@ -183,123 +240,156 @@ def _quote(pricing: dict, spec: dict, margin: float) -> dict:
             "hedge_plan": pricing.get("hedge_hint", "Hedge first-order risk, then monitor convexity/vega.")}
 
 
+def _scenario_risk(spec,pricing,dominant):
+    g=pricing.get("greeks",{})
+    scale=1  # Pricing adapters expose position Greeks, including contract quantity.
+    # Explicit educational sensitivity stress, not a VaR or a real approval.
+    vega=float(g.get("vega") or 0)*scale
+    dv01=float(g.get("dv01") or 0);cs01=float(g.get("cs01") or 0)
+    stress_loss=-(abs(vega)*5+abs(dv01)*100+abs(cs01)*50)
+    supplied_limit=spec.get("risk_limit")
+    limit=number(supplied_limit,"riskLimit",1e-8,1e15) if supplied_limit is not None else None
+    usage=abs(stress_loss)/limit if limit else None
+    return {"dominant_risk":dominant,"dv01":dv01,"cs01":cs01,"vega":vega,"stress_loss":stress_loss,
+            "limit_usage":usage,"status":"NOT_ASSESSED" if limit is None else "WITHIN_SCENARIO_LIMIT" if usage<=1 else "SCENARIO_LIMIT_BREACHED",
+            "approved":False,"risk_limit":limit,"approval_scope":"No production or compliance approval is provided.",
+            "scenario":{"volatility_points":5,"rates_bps":100,"credit_bps":50,"method":"Absolute first-order sensitivity stress; excludes cross terms and nonlinear repricing."},
+            "limitations":["No supplied risk limit: usage cannot be assessed." if limit is None else "Only the supplied educational limit is checked.",
+                            "Finite-difference/autocall sensitivities contain sampling error; this is not a risk-management approval."]}
+
+
 # ---- RATES desk ------------------------------------------------------------
 def _rates_spec(parsed):
     yrs = parsed["months"] / 12
+    currency=parsed.get('ticket',{}).get('currency') or ('EUR' if re.search(r'\beur\b|euro',parsed.get('_q',''),re.I) else 'USD')
     return {"product_id": "PROD-RT", "type": "Payer Swap" if parsed["view"] == "Price increase" else "Receiver Swap",
-            "kind": "swap", "underlying": "US rates (10Y)", "notional": 1_000_000, "maturity_years": round(yrs, 3),
+            "kind": "swap", "underlying": f"{currency} rates ({yrs:g}Y)", "currency":currency,"notional": 1_000_000, "maturity_years": round(yrs, 6), "ticket": parsed.get("ticket", {}), "risk_limit":parsed.get("riskLimit"),
             "payoff_description": "notional * annuity * (par - fixed)"}
 def _rates_market(room):
-    if room: return {"curves": ["SOFR OIS", "USD swap"], "data_quality": 0.95, "level": room.market.rates["USD"]["level"]}
-    return {"curves": ["SOFR OIS", "USD swap"], "data_quality": 0.95, "level": 0.0428}
-def _rates_model(spec): return {"model": "Bootstrapped curve + DCF", "assumptions": ["single curve", "parallel shift for DV01"], "model_risk": "low"}
-def _rates_price(spec, snap, room):
-    notional, T = spec["notional"], spec["maturity_years"]
-    ann = room.market.annuity("USD", T) if room else 4.55
-    dv01 = ann * notional * 1e-4
-    return {"theoretical_price": 0.0, "unit": "par", "currency": "USD", "dv01": round(dv01),
-            "greeks": {"dv01": round(dv01)}, "break_even": "par rate", "max_loss": "rates move adversely",
-            "max_profit": "rates move favourably", "hedge_hint": "Offset DV01 with an opposite swap or rate futures; watch curve/basis."}
+    levels={c:v['level'] for c,v in room.market.rates.items()} if room else {'USD':.0428,'EUR':.032}
+    return {"curves": ["illustrative flat USD/EUR continuous yields"], "data_quality": None, "data_status":"simulated_teaching_inputs", "level":levels['USD'],'levels':levels}
+def _rates_model(spec): return {"model": "Single-flat-curve discounted swap cash flows", "assumptions": ["illustrative continuous yield", "annual fixed payments with final stub"], "model_risk": "low"}
+def _rates_price(spec,snap,room):
+    ccy=spec['currency'];levels=snap.get('levels',{})
+    if ccy not in levels and 'riskFreeRate' not in spec.get('ticket',{}):raise ValueError('Supply an explicit flat riskFreeRate for this swap currency.')
+    params={"notional":spec["notional"],"maturityYears":spec["maturity_years"],"riskFreeRate":levels.get(ccy,.0428),
+            "direction":"receiver" if "Receiver" in spec["type"] else "payer","currency":ccy,**spec.get("ticket",{})}
+    result=swap_analysis(params)
+    spec["notional"]=result["inputs"]["notional"]
+    return {"theoretical_price":result["value"],"position_value":result["value"],"unit":ccy+" present value","currency":ccy,
+            "greeks":result["greeks"],"inputs":result["inputs"],"calculation":result,"limitations":result["limitations"],
+            "break_even":result["parRate"],"max_loss":"Adverse curve moves","max_profit":"Favourable curve moves",
+            "hedge_hint":"Computed DV01 uses the disclosed flat curve; multi-curve/basis risk is outside this teaching model."}
+
 def _rates_risk(spec, pricing):
-    dv01 = pricing["greeks"].get("dv01", 0)
-    return {"dominant_risk": "DV01 / curve", "dv01": dv01, "cs01": 0, "vega": 0,
-            "stress_loss": -round(dv01 * 100), "limit_usage": 0.55, "status": "GREEN", "approved": True}
+    return _scenario_risk(spec,pricing,'DV01 / curve')
 
 
 # ---- CREDIT desk -----------------------------------------------------------
 def _credit_spec(parsed):
     return {"product_id": "PROD-CR", "type": "Buy CDS Protection", "kind": "cds", "underlying": "IG credit",
-            "notional": 1_000_000, "maturity_years": 5.0, "payoff_description": "(1-R) * notional on default"}
+            "notional": 1_000_000, "maturity_years": parsed["months"]/12, "ticket": parsed.get("ticket", {}), "risk_limit":parsed.get("riskLimit"), "payoff_description": "(1-R) * notional on default"}
 def _credit_market(room):
     sp = room.market.credit["IG"] if room else 120.0
-    return {"curves": ["CDS spreads", "hazard curve"], "data_quality": 0.9, "spread_bp": sp}
+    return {"curves": ["CDS spreads", "hazard curve"], "data_quality": None, "data_status":"simulated_teaching_inputs", "spread_bp": sp}
 def _credit_model(spec): return {"model": "Hazard-rate / credit triangle", "assumptions": ["flat hazard", "recovery 40%"], "model_risk": "medium"}
-def _credit_price(spec, snap, room):
-    notional, ra = spec["notional"], 4.2
-    cs01 = ra * notional * 1e-4
-    spread = snap.get("spread_bp", 120)
-    return {"theoretical_price": round(spread / 100, 2), "unit": "%", "currency": "EUR", "cs01": round(cs01),
-            "greeks": {"cs01": round(cs01)}, "break_even": "spread widening", "max_loss": "carry paid",
-            "max_profit": "default / widening", "jump_to_default": round(0.6 * notional),
-            "hedge_hint": "Hedge CS01 with an index CDS; mind single-name vs index basis."}
+def _credit_price(spec,snap,room):
+    params={"notional":spec["notional"],"maturityYears":spec["maturity_years"],"spread":snap.get("spread_bp",120)/10000,"currency":"EUR",**spec.get("ticket",{})}
+    result=cds_analysis(params);spec["notional"]=result["inputs"]["notional"]
+    return {"theoretical_price":100*result["running_spread"],"position_value":result["value"],"unit":"% running spread p.a.","currency":result['inputs']['currency'],
+            "greeks":result["greeks"],"inputs":result["inputs"],"calculation":result,"limitations":result["limitations"],
+            "break_even":"Spread above the fixed premium improves protection-buyer PV","max_loss":"Premium and counterparty exposure",
+            "max_profit":"Protection on default / spread widening","jump_to_default":result["jump_to_default"],
+            "hedge_hint":"CS01 is finite-difference repricing of the disclosed flat-hazard model; basis/credit-curve calibration is not claimed."}
+
 def _credit_risk(spec, pricing):
-    cs01 = pricing["greeks"].get("cs01", 0)
-    return {"dominant_risk": "CS01 / jump-to-default", "dv01": 0, "cs01": cs01, "vega": 0,
-            "stress_loss": -round(cs01 * 50), "limit_usage": 0.48, "status": "GREEN", "approved": True}
+    return _scenario_risk(spec,pricing,'CS01 / jump-to-default')
 
 
 # ---- FX desk ---------------------------------------------------------------
 def _fx_spec(parsed):
     yrs = parsed["months"] / 12
-    return {"product_id": "PROD-FX", "type": "FX Option (EURUSD call)", "kind": "option", "underlying": "EUR/USD",
-            "notional": 1_000_000, "maturity_years": round(yrs, 3), "strike": 1.08,
+    return {"product_id": "PROD-FX", "type": f"FX Option (EURUSD {parsed.get('ticket',{}).get('optionType','call')})", "kind": "option", "underlying": "EUR/USD",
+            "notional": 1_000_000, "maturity_years": round(yrs, 6), "ticket": parsed.get("ticket", {}), "risk_limit":parsed.get("riskLimit"), "strike": 1.08,
             "payoff_description": "notional * max(S_T - K, 0)"}
 def _fx_market(room):
     s = room.market.fx["EURUSD"] if room else 1.0712
-    return {"curves": ["FX spot", "fwd points", "FX vol surface"], "data_quality": 0.94, "spot": s, "vol": 0.09}
+    return {"curves": ["FX spot", "fwd points", "FX vol surface"], "data_quality": None, "data_status":"simulated_teaching_inputs", "spot": s, "vol": 0.09}
 def _fx_model(spec): return {"model": "Garman–Kohlhagen", "assumptions": ["lognormal spot", "domestic (USD) & foreign (EUR) rates", "flat vol"], "model_risk": "low"}
-def _fx_price(spec, snap, room):
-    S, K, T, vol = snap.get("spot", 1.0712), spec["strike"], spec["maturity_years"], snap.get("vol", 0.09)
-    o = bs(S, K, 0.03, vol, T, "call")
-    contracts = spec["notional"] / S
-    return {"theoretical_price": round(o["price"], 4), "unit": "/ EUR", "currency": "USD",
-            "greeks": {"delta": round(o["delta"] * contracts), "vega": round(o["vega"] * contracts)},
-            "break_even": round(K + o["price"], 4), "max_loss": round(o["price"] * contracts), "max_profit": "unlimited",
-            "hedge_hint": "Delta-hedge spot, then manage vega and gap around fixings."}
+def _fx_price(spec,snap,room):
+    if spec.get('ticket',{}).get('currency','USD')!='USD':raise ValueError('EUR/USD option prices are denominated in USD per EUR; currency must be USD.')
+    defaults={"spot":snap.get("spot",1.0712),"strike":spec["strike"],"maturityYears":spec["maturity_years"],
+              "volatility":snap.get("vol",.09),"riskFreeRate":.03,"dividendYield":.02,"currency":"USD"}
+    result=option_analysis(spec.get("ticket",{}),model="gk",defaults=defaults)
+    quantity=number(spec.get("ticket",{}).get("quantity",spec.get("ticket",{}).get("notional",spec["notional"])),"quantity",1e-8,1e12)
+    spec["quantity"]=quantity;spec["notional"]=quantity;spec["notional_currency"]="EUR"
+    greeks={key:value*quantity for key,value in result["greeks"].items()}
+    return {"theoretical_price":result["value"],"position_value":result["value"]*quantity,"unit":"/ EUR","currency":"USD","greeks":greeks,
+            "break_even":result["inputs"]["strike"]+(1 if result['inputs']['optionType']=='call' else -1)*result["value"],"max_loss":result["value"]*quantity,"max_profit":"unlimited" if result['inputs']['optionType']=='call' else result['inputs']['strike']*quantity,
+            "hedge_hint":"Domestic/foreign continuous rates are retained explicitly; delta hedge with spot and monitor vega.",
+            "inputs":result["inputs"],"calculation":result,"limitations":result["limitations"]}
+
 def _fx_risk(spec, pricing):
-    g = pricing["greeks"]
-    return {"dominant_risk": "FX delta / vega", "dv01": 0, "cs01": 0, "vega": g.get("vega", 0),
-            "stress_loss": -round(abs(g.get("vega", 0)) * 5), "limit_usage": 0.4, "status": "GREEN", "approved": True}
+    return _scenario_risk(spec,pricing,'FX delta / vega')
 
 
 # ---- EXOTICS desk ----------------------------------------------------------
 def _exotic_spec(parsed):
-    yrs = max(parsed["months"] / 12, 1.0)
+    yrs = parsed["months"] / 12
     return {"product_id": "PROD-EX", "type": "Autocall (Athena, memory coupon)", "kind": "exotic", "underlying": parsed["underlying"],
-            "notional": 1_000_000, "maturity_years": round(yrs, 3),
+            "notional": 1_000_000, "maturity_years": round(yrs, 6), "ticket": parsed.get("ticket", {}), "risk_limit":parsed.get("riskLimit"), "autocall":parsed.get("autocall",{}),
             "payoff_description": "autocall barrier 100%, coupon barrier 70%, protection 60%, memory coupons"}
 def _exotic_market(room):
-    return {"curves": ["vol surface", "correlation matrix", "dividend curve"], "data_quality": 0.88, "vol": 0.22, "corr": 0.6}
-def _exotic_model(spec): return {"model": "Local-stochastic vol Monte-Carlo", "assumptions": ["calibrated smile", "correlation matrix", "20k paths"], "model_risk": "high"}
-def _exotic_price(spec, snap, room):
-    # indicative MC-style autocall value: PV of expected coupons + protected redemption
-    notional = spec["notional"]
-    coupon, prob_autocall = 0.06, 0.62
-    value = notional * (1 + coupon * 1.4 * prob_autocall - 0.03)  # indicative
-    return {"theoretical_price": round(value / notional * 100, 2), "unit": "% of par", "currency": "EUR",
-            "greeks": {"vega": round(notional * 0.0008), "correlation": round(notional * 0.0005), "gamma": round(notional * 0.0003)},
-            "break_even": "protection barrier 60%", "max_loss": "1:1 below protection barrier", "max_profit": "memory coupons + redemption",
-            "hedge_hint": "Short skew / long vol / short correlation: hedge vega and dispersion, watch the protection barrier near maturity."}
+    return {"curves": ["supplied constant volatility", "flat continuous rate/carry"], "data_quality": None, "data_status":"simulated_teaching_inputs", "vol": 0.22, "corr": None}
+def _exotic_model(spec):
+    return {"model":"Single-asset risk-neutral GBM Monte Carlo, discrete observations",
+            "assumptions":["constant annual volatility; no calibrated smile or LSV","discrete memory coupons and autocall dates; terminal protection only"],
+            "model_risk":"high","scope":"Educational original model; no correlation sensitivity or executable market quote."}
+
+def _exotic_price(spec,snap,room):
+    ticket=spec.get("ticket",{})
+    params={"maturityYears":spec["maturity_years"],"notional":spec["notional"],**spec.get("autocall",{})}
+    params.update({k:v for k,v in ticket.items() if k in {"spot","referenceSpot","volatility","riskFreeRate","dividendYield","maturityYears","notional","currency"}})
+    if "spot" in ticket and "referenceSpot" not in ticket:params["referenceSpot"]=ticket["spot"]
+    result=autocall_analysis(params)
+    spec['notional']=result['inputs']['notional'];spec['notional_currency']=result['inputs']['currency']
+    return {"theoretical_price":result["value"],"position_value":result["present_value"],"unit":"% of par","currency":result['inputs']['currency'],"greeks":result["greeks"],
+            "break_even":"Path-dependent; no single break-even","max_loss":params.get("notional",spec["notional"]),
+            "max_profit":"Coupons and early redemption depend on the disclosed observation schedule.",
+            "hedge_hint":"Inspect calculated scenario risk and Monte Carlo uncertainty; a single-asset model has no correlation hedge.",
+            "calculation":result,"inputs":result["inputs"],"limitations":result["limitations"]}
+
 def _exotic_risk(spec, pricing):
-    g = pricing["greeks"]
-    return {"dominant_risk": "vega / correlation / gap", "dv01": 0, "cs01": 0, "vega": g.get("vega", 0),
-            "stress_loss": -round(abs(g.get("vega", 0)) * 8), "limit_usage": 0.71, "status": "AMBER", "approved": True}
+    return _scenario_risk(spec,pricing,'vega / barrier / gap')
 
 
 # ---- COMMODITIES desk (oil/gold options — the mockup's WTI example) -------
 def _comm_spec(parsed):
     yrs = parsed["months"] / 12
-    u = "Crude Oil (WTI)" if parsed["factor"] == "oil" else parsed["underlying"]
-    return {"product_id": "PROD-CM", "type": "WTI Call Option" if parsed["factor"] == "oil" else "Commodity Call Option",
-            "kind": "option", "underlying": u, "notional": 100, "maturity_years": round(yrs, 3), "strike": 80.0,
+    u = parsed["underlying"]
+    kind=parsed.get('ticket',{}).get('optionType','call')
+    return {"product_id": "PROD-CM", "type": f"{u} {kind.capitalize()} Option",
+            "kind": "option", "underlying": u, "notional": 100, "maturity_years": round(yrs, 6), "ticket": parsed.get("ticket", {}), "risk_limit":parsed.get("riskLimit"), "strike": 80.0,
             "payoff_description": "max(S_T - K, 0) per barrel"}
 def _comm_market(room):
     spot = room.market.spots.get("WTI", 78.42) if room else 78.42
-    return {"curves": ["commodity fwd", "vol surface"], "data_quality": 0.9, "spot": spot, "vol": 0.1341}
+    return {"curves": ["commodity fwd", "vol surface"], "data_quality": None, "data_status":"simulated_teaching_inputs", "spot": spot, "vol": 0.1341}
 def _comm_model(spec): return {"model": "Black-76 (lognormal futures)", "assumptions": ["lognormal forward price", "flat vol", "discount at r"], "model_risk": "low"}
-def _comm_price(spec, snap, room):
-    # ATM call quoted to the desk premium: S=K=80, vol 13.41%, T=maturity, r=4%
-    S = K = 80.0
-    o = bs(S, K, 0.04, 0.1341, spec["maturity_years"], "call")
-    prem = o["price"]
-    return {"theoretical_price": round(prem, 2), "unit": "/ bbl", "currency": "USD",
-            "greeks": {"delta": round(o["delta"], 4), "vega": round(o["vega"], 4), "gamma": round(o["gamma"], 6)},
-            "break_even": round(K + prem, 2), "max_loss": round(prem * 100), "max_profit": "unlimited",
-            "hedge_hint": "Delta-hedge with WTI futures, then monitor vega/gamma into expiry."}
+def _comm_price(spec,snap,room):
+    supplied=spec.get("ticket",{})
+    defaults={"forward":80.0,"strike":spec["strike"],"riskFreeRate":.04,"volatility":.1341,"maturityYears":spec["maturity_years"],"currency":"USD"}
+    result=option_analysis(supplied,model="black76",defaults=defaults)
+    premium=result["value"]
+    quantity=number(supplied.get("quantity",supplied['notional']/result['inputs']['forward'] if 'notional' in supplied else spec["notional"]),"quantity",1e-8,1e6)
+    spec["quantity"]=quantity;spec["notional"]=quantity*result['inputs']['forward'];spec['notional_currency']=result['inputs']['currency']
+    unit='/ oz' if 'gold' in spec['underlying'].lower() else '/ bbl'
+    return {"theoretical_price":premium,"position_value":premium*quantity,"unit":unit,"currency":result['inputs']['currency'],"greeks":{k:v*quantity for k,v in result["greeks"].items()},
+            "break_even":result["inputs"]["strike"]+(1 if result['inputs']['optionType']=='call' else -1)*premium,"max_loss":premium*quantity,"max_profit":"unlimited" if result['inputs']['optionType']=='call' else result['inputs']['strike']*quantity,
+            "hedge_hint":"Forward delta is computed with the forward held fixed; monitor volatility and expiry risk.",
+            "inputs":result["inputs"],"calculation":result,"limitations":result["limitations"]}
+
 def _comm_risk(spec, pricing):
-    g = pricing["greeks"]
-    return {"dominant_risk": "vega / gamma (commodity)", "dv01": 0, "cs01": 0, "vega": g.get("vega", 0),
-            "stress_loss": -round(abs(g.get("vega", 0)) * 5 * 100), "limit_usage": 0.5, "status": "GREEN", "approved": True}
+    return _scenario_risk(spec,pricing,'vega / gamma (commodity)')
 
 
 # ---- CRYPTO VOL / OPTIONS desk (BTC/ETH options via the VolSurface engine) -
@@ -308,44 +398,41 @@ def _cvol_asset(parsed):
 def _cvol_spec(parsed):
     asset = _cvol_asset(parsed)
     yrs = max(parsed["months"] / 12, 1 / 12)
-    kind = "put" if parsed["view"] == "Price decrease" else "call"
-    return {"product_id": "PROD-CV", "type": f"{asset} Vanilla {kind.capitalize()} (ATM)", "kind": "option",
+    ticket=parsed.get('ticket',{})
+    kind = ticket.get('optionType',ticket.get('option_type','put' if parsed['view']=='Price decrease' else 'call'))
+    return {"product_id": "PROD-CV", "type": f"{asset} European {str(kind).capitalize()} (contract inputs pending)", "kind": "option",
             "underlying": f"{asset}/USD", "asset": asset, "option_type": kind, "notional": 10,
-            "maturity_years": round(yrs, 3), "strike": None,
+            "maturity_years": round(yrs, 6), "ticket": parsed.get("ticket", {}), "risk_limit":parsed.get("riskLimit"), "strike": None,
             "payoff_description": (f"max(S_T - K, 0) per {asset}" if kind == "call" else f"max(K - S_T, 0) per {asset}")}
 def _cvol_market(room):
-    from . import volsurface_bridge as vb
     m = room.market if room else None
     spots = {a: (m.spots.get(a) if m else d) for a, d in (("BTC", 61250.0), ("ETH", 3380.0))}
     vols = {a: (m.vols.get(a) if m else d) for a, d in (("BTC", 0.55), ("ETH", 0.66))}
-    rv = vb.realized_vol("BTC")
-    return {"curves": ["Deribit option chain", "SVI vol surface", "realized vol"], "data_quality": 0.9,
+    return {"curves": ["simulated spot", "supplied flat volatility"], "data_quality": None, "data_status":"simulated_teaching_inputs",
             "spots": spots, "vols": vols, "spot": spots["BTC"], "vol": vols["BTC"],
-            "realized_vol_30d": rv.get("rv_30d"), "engine": vb.engine_name()}
+            "realized_vol_30d": None,"realized_vol_status":"not_requested; use the realized-volatility calculator with explicit source rows",
+            "engine": "canonical BSM; supplied teaching inputs; no provider request"}
 def _cvol_model(spec):
-    return {"model": "Black-Scholes-Merton + SVI smile (Deribit-calibrated)",
-            "assumptions": ["log-normal spot", "SVI total-variance smile", "flat r = 4%"], "model_risk": "medium"}
-def _cvol_price(spec, snap, room):
-    from . import volsurface_bridge as vb
-    asset = spec.get("asset", "BTC")
-    S = snap.get("spots", {}).get(asset) or snap.get("spot", 61250.0)
-    vol = snap.get("vols", {}).get(asset) or snap.get("vol", 0.55)
-    step = 500.0 if asset == "BTC" else 50.0
-    K = round(S / step) * step
-    T, kind = spec["maturity_years"], spec.get("option_type", "call")
-    o = vb.price_option(S, K, T, 0.04, vol, kind)
-    n = spec["notional"]
-    return {"theoretical_price": round(o["price"], 2), "unit": f"/ {asset}", "currency": "USD",
-            "strike": K, "spot": round(S, 2), "vol": round(vol, 4), "engine": vb.engine_name(),
-            "greeks": {"delta": round(o["delta"] * n, 3), "gamma": round(o["gamma"] * n, 6),
-                       "vega": round(o["vega"] * n, 3), "theta": round(o["theta"] * n, 3)},
-            "break_even": round(K + o["price"], 2) if kind == "call" else round(K - o["price"], 2),
-            "max_loss": round(o["price"] * n), "max_profit": "unlimited" if kind == "call" else round(K * n),
-            "hedge_hint": "Delta-hedge on perp/spot, manage vega along the SVI smile, watch weekend gap & funding."}
+    return {"model": "Black-Scholes-Merton with supplied flat volatility",
+            "assumptions": ["log-normal spot", "supplied flat volatility; no SVI calibration claimed", "explicit continuous rate/carry"], "model_risk": "medium"}
+def _cvol_price(spec,snap,room):
+    if spec.get('ticket',{}).get('currency','USD')!='USD':raise ValueError('BTC/USD and ETH/USD option prices are denominated in USD; currency must be USD.')
+    asset=spec.get("asset","BTC");spot=snap.get("spots",{}).get(asset) or snap.get("spot",61250)
+    vol=snap.get("vols",{}).get(asset) or snap.get("vol",.55);step=500 if asset=="BTC" else 50
+    defaults={"spot":spot,"strike":round(spot/step)*step,"volatility":vol,"maturityYears":spec["maturity_years"],"riskFreeRate":.04,"optionType":spec.get("option_type","call"),"currency":"USD"}
+    result=option_analysis(spec.get("ticket",{}),defaults=defaults)
+    supplied=spec.get('ticket',{})
+    n=number(supplied.get("quantity",supplied['notional']/result['inputs']['spot'] if 'notional' in supplied else spec["notional"]),"quantity",1e-8,1e6)
+    spec["quantity"]=n;spec['notional']=n*result['inputs']['spot'];spec['notional_currency']='USD'
+    return {"theoretical_price":result["value"],"position_value":result["value"]*n,"unit":"/ "+asset,"currency":"USD",
+            "strike":result["inputs"]["strike"],"spot":result["inputs"]["spot"],"vol":result["inputs"]["volatility"],"engine":"canonical BSM",
+            "greeks":{key:value*n for key,value in result["greeks"].items()},"inputs":result["inputs"],"calculation":result,"limitations":result["limitations"],
+            "break_even":result["inputs"]["strike"]+result["value"] if result["inputs"]["optionType"]=="call" else result["inputs"]["strike"]-result["value"],
+            "max_loss":result["value"]*n,"max_profit":"unlimited" if result["inputs"]["optionType"]=="call" else result["inputs"]["strike"]*n,
+            "hedge_hint":"Calculated flat-volatility delta/vega; no live Deribit or calibrated SVI result is claimed."}
+
 def _cvol_risk(spec, pricing):
-    g = pricing["greeks"]
-    return {"dominant_risk": "vega / gamma (crypto smile)", "dv01": 0, "cs01": 0, "vega": g.get("vega", 0),
-            "stress_loss": -round(abs(g.get("vega", 0)) * 8), "limit_usage": 0.6, "status": "AMBER", "approved": True}
+    return _scenario_risk(spec,pricing,'vega / gamma (crypto)')
 
 
 DESKS: dict[str, DeskKit] = {
@@ -381,6 +468,14 @@ class Desk:
         for agent in self.agents:
             out = agent.act(ctx)
             results.append({**agent.card(), "status": agent.status, **out})
+        # Earlier role text must describe the same final validated ticket too.
+        for result in results:
+            if result['role']=='Structurer':
+                spec=ctx['product_spec']
+                result['output']=f"Structured a {spec['type']} ({spec['payoff_description']})."
+            elif result['role']=='Sales':
+                rfq=ctx['rfq']
+                result['output']=f"Captured RFQ on the {rfq['desk']} desk: {ctx['parsed']['intention'].lower()} on {rfq['underlying']} ({rfq['horizon']})."
         return results
 
     def roster(self) -> list[dict]:
@@ -412,6 +507,17 @@ class TradingFloor:
 
     def run(self, parsed: dict, room=None) -> dict:
         desk_name = self.route(parsed)
+        t=parsed.get('_q','')
+        unsupported={
+            'Exotics':r'\b(?:worst[- ]of|snowball|range accrual|barrier option|knock[- ](?:in|out)|basket)\b',
+            'Rates':r'\b(?:swaption|cap|floor|callable|inflation|cpi)\b',
+            'FX':r'\b(?:forward|fx swap)\b',
+            'Credit':r'\b(?:corporate bond|credit[- ]linked note)\b',
+            'CryptoVol':r'\b(?:variance swap|vol(?:atility)? swap)\b',
+        }
+        if (re.search(unsupported.get(desk_name,r'(?!)'),t,re.I) or
+            (parsed.get('factor')=='equity' and desk_name!='Exotics')):
+            raise ValueError('The requested contract has no matching RFQ pricing adapter. Its catalogue entry is retained, but no substitute product or price is returned. Available RFQ models: single-asset discrete memory-coupon autocall; flat-curve swap; flat-hazard CDS; EURUSD European option; commodity forward option; BTC/ETH European option. Use the canonical calculators for other supported numerical contracts.')
         desk = self.desks[desk_name]
         ctx: dict = {"parsed": parsed, "room": room, "audit": []}
         agents = desk.run_chain(ctx)

@@ -6,6 +6,7 @@ import re
 import time
 import unicodedata
 import uuid
+from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +22,8 @@ from .platform_store import PlatformStore
 from .calculators import ExerciseInputError
 from .security import MEMBER, ApiSecurity, AuthenticatedIdentity
 from .interview_lab import register_interview_routes
+from .learner_api import register_learner_routes
+from .learning_workflows import register_learning_routes
 
 
 COURSE_SCRIPT_FILES = {
@@ -152,6 +155,7 @@ _COURSE_AUTHORING_SECTION_RE = re.compile(
     r"Positionnement bibliotheque|"
     r"Supports a produire|"
     r"Script enseignant|"
+    r"Source coverage|Source gaps[^\r\n]*|Teaching notes|Instructor notes|Persona checkpoints[^\r\n]*|"
     r"Checkpoint personas[^\r\n]*"
     r")[ \t]*\r?\n.*?(?=^##[ \t]+|\Z)",
     flags=re.IGNORECASE | re.MULTILINE | re.DOTALL,
@@ -163,7 +167,8 @@ _COURSE_PROVENANCE_LEGEND_RE = re.compile(
     flags=re.IGNORECASE | re.MULTILINE,
 )
 _COURSE_PROVENANCE_TAG_RE = re.compile(
-    r"_?\[(?:extrait|reformule|genere(?:[ \t]+a[ \t]+partir[ \t]+des[ \t]+concepts)?)\]_?",
+    r"_?\[(?:extrait|reformule|genere|authored|generated|paraphrased|quoted)"
+    r"(?:[ \t]+a[ \t]+partir[ \t]+des[ \t]+concepts|[ \t]*[-—–][^\]\r\n]*)?\]_?",
     flags=re.IGNORECASE,
 )
 _COURSE_SOURCE_MARKER_RE = re.compile(
@@ -177,7 +182,7 @@ _COURSE_AUTHORING_UIBLOCK_RE = re.compile(
     flags=re.IGNORECASE | re.MULTILINE | re.DOTALL,
 )
 _COURSE_REFERENCE_SECTION_RE = re.compile(
-    r"^##[ \t]+Sources RAG a citer[ \t]*\r?\n"
+    r"^##[ \t]+(?P<label>Sources RAG a citer|References)[ \t]*\r?\n"
     r"(?P<body>.*?)(?=^##[ \t]+|\Z)",
     flags=re.IGNORECASE | re.MULTILINE | re.DOTALL,
 )
@@ -237,7 +242,8 @@ def _project_public_references(markdown: str, slug: str) -> str:
         ][:4]
         if not clean:
             return ""
-        return "## References du cours\n" + "\n".join(clean) + "\n\n"
+        heading = "References" if match.group("label").lower() == "references" else "References du cours"
+        return "## " + heading + "\n" + "\n".join(clean) + "\n\n"
 
     return _COURSE_REFERENCE_SECTION_RE.sub(replace, markdown)
 
@@ -281,6 +287,9 @@ def _remove_public_citation_ghosts(markdown: str) -> str:
 def _public_course_markdown(markdown: str) -> str:
     """Project authoring Markdown into a clean, client-facing course."""
     public = _project_public_references(markdown, _course_slug(markdown))
+    # Editorial comments can contain an entire superseded quiz. They are not a
+    # learner-facing API contract, even when the browser happens to hide them.
+    public = re.sub(r"<!--[\s\S]*?-->", "", public)
     public = _COURSE_FRONTMATTER_RE.sub("", public)
     public = _COURSE_PROVENANCE_LEGEND_RE.sub("", public)
     public = _COURSE_AUTHORING_SECTION_RE.sub("", public)
@@ -292,6 +301,8 @@ def _public_course_markdown(markdown: str) -> str:
     public = re.sub(r"(?<=\S)[ \t]{2,}(?=\S)", " ", public)
     public = re.sub(r"[ \t]+(?=[,.;:])", "", public)
     public = re.sub(r"\n{3,}", "\n\n", public)
+    from .course_publication import spread_uniform_quiz_answers
+    public = spread_uniform_quiz_answers(public)
     return public.strip()
 
 
@@ -396,7 +407,13 @@ class BlogBody(BaseModel):
 
 
 class DeskBody(BaseModel):
-    query: str
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(min_length=3, max_length=8000)
+
+
+class DeskTradeBody(DeskBody):
+    side: int = Field(default=1, strict=True, ge=-1, le=1)
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class ToolRunBody(BaseModel):
@@ -674,7 +691,7 @@ def create_app(services: Services | None = None) -> FastAPI:
         )
 
     @app.get("/courses/{course_id}/script", response_class=Response)
-    def course_script(course_id: str) -> Response:
+    def course_script(course_id: str, language: Literal["en", "fr"] = "fr") -> Response:
         """Deliver course IP only after the central entitlement middleware.
 
         The filename is selected from a closed mapping; user input is never
@@ -686,13 +703,20 @@ def create_app(services: Services | None = None) -> FastAPI:
         root = services.settings.course_scripts_dir
         if root is None:
             raise HTTPException(status_code=503, detail="Course content is not configured.")
-        path = root / filename
-        if not path.is_file():
-            raise HTTPException(status_code=503, detail="Course content is unavailable.")
+        if language == "en":
+            from .course_publication import accepted_english_course
+            content = accepted_english_course(root, filename)
+            if content is None:
+                raise HTTPException(status_code=404, detail="The reviewed English course variant is not available. Choose another available language or retry later.")
+        else:
+            path = root / filename
+            if not path.is_file():
+                raise HTTPException(status_code=503, detail="Course content is unavailable.")
+            content = path.read_text(encoding="utf-8")
         return Response(
-            content=_public_course_markdown(path.read_text(encoding="utf-8")),
+            content=_public_course_markdown(content),
             media_type="text/markdown; charset=utf-8",
-            headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+            headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Content-Language": language},
         )
 
     @app.post("/telemetry/rum", status_code=202)
@@ -1054,9 +1078,22 @@ def create_app(services: Services | None = None) -> FastAPI:
     # ===================== AGENTIC DESK (multi-agent trading room) ========
     desk = DeskOrchestrator(services.llm)
 
+    def _desk_room(request: Request):
+        from .desk_state import get_room
+        identity=getattr(request.state,'tpl_identity',None)
+        if not isinstance(identity,AuthenticatedIdentity):
+            raise HTTPException(status_code=401,detail='A verified signed user session is required for a private paper room.',headers={'WWW-Authenticate':'Bearer'})
+        # Bind a process-memory room to this service store as well as JWT subject.
+        room_key=hashlib.sha256((str(services.settings.db_path.resolve())+'\0'+identity.user_id).encode()).hexdigest()
+        try:return get_room(room_key)
+        except RuntimeError as exc:raise HTTPException(status_code=503,detail=str(exc)) from exc
+
     @app.post("/agent/desk/run", dependencies=[Depends(guard_paid)])
-    def desk_run(body: DeskBody) -> dict:
-        return desk.run(body.query)
+    def desk_run(body: DeskBody, request: Request) -> dict:
+        try:
+            return desk.run(body.query,room=_desk_room(request))
+        except (ValueError, TypeError, ArithmeticError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     # --- audited agent/tool registry -------------------------------------
     from .tool_registry import get_tool_registry
@@ -1375,44 +1412,42 @@ def create_app(services: Services | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     # --- stateful FIC trading room (live market + live books) -------------
-    from .desk_state import get_room
+    from .desk_state import apply_desk_quote_to_book
+    from .paper_book import replay_desk_paper_request
 
     @app.get("/agent/desk/state")
-    def desk_state() -> dict:
-        room = get_room()
+    def desk_state(request: Request) -> dict:
+        room = _desk_room(request)
         room.auto_tick()  # time passes with the wall clock
         return room.snapshot()
 
     @app.post("/agent/desk/tick")
-    def desk_tick(seconds: float = 1.0) -> dict:
-        room = get_room()
-        room.tick(seconds)
-        return room.snapshot()
+    def desk_tick(request: Request, seconds: float = 1.0) -> dict:
+        room = _desk_room(request)
+        try:
+            with room.paper_lock:
+                room.tick(seconds)
+                return room.snapshot()
+        except (ValueError,TypeError,ArithmeticError) as exc:
+            raise HTTPException(status_code=422,detail=str(exc)) from exc
 
     @app.post("/agent/desk/trade")
-    def desk_trade(body: DeskBody) -> dict:
-        room = get_room()
-        room.auto_tick()
-        result = desk.run(body.query)
-        kind = result["product_spec"]["kind"]
-        factor = result["parsed"]["factor"]
-        if kind == "swap":
-            room.add_swap("EUR", 50_000_000, +1, result["product_spec"]["maturity_years"] or 5.0,
-                          label=f"RFQ {result['parsed']['underlying']} payer")
-        elif kind == "cds":
-            room.add_cds(50_000_000, +1, label="RFQ IG protection")
-        elif factor in ("fx",):
-            room.add_fx_forward(25_000_000, +1, label="RFQ EURUSD fwd")
-        elif factor == "crypto":
-            pr = result["pricing_result"] or {}
-            asset = pr.get("strike") and result["product_spec"].get("asset") or "BTC"
-            room.add_option(asset, 10, +1, pr.get("strike") or room.market.spots.get(asset, 61250.0),
-                            result["product_spec"]["maturity_years"] or 0.25, label=f"RFQ {asset} option")
-        else:
-            room.add_option("WTI" if factor == "oil" else "SPX", 1000, +1, 80.0,
-                            result["product_spec"]["maturity_years"] or 0.4, label="RFQ option")
-        room.revalue()
-        return {"result": result, "snapshot": room.snapshot()}
+    def desk_trade(body: DeskTradeBody, request: Request) -> dict:
+        room=_desk_room(request)
+        try:
+            key=body.idempotency_key or request.headers.get('Idempotency-Key')
+            if body.idempotency_key and request.headers.get('Idempotency-Key') not in {None,body.idempotency_key}:
+                raise ValueError('Body and header idempotency keys disagree.')
+            if body.side not in {-1,1}:raise ValueError('Paper side must be +1 or -1.')
+            with room.paper_lock:
+                previous=replay_desk_paper_request(room,body.query,body.side,key)
+                if previous is not None:
+                    return {**previous,'snapshot':room.snapshot(),'replayed':True}
+                result=desk.run(body.query,room=room)
+                position=apply_desk_quote_to_book(room,result,side=body.side,request_id=key)
+                return {'result':result,'snapshot':room.snapshot(),'paper_position':position,'replayed':False}
+        except (ValueError, TypeError, ArithmeticError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     # ===================== MARKET DATA (shared multi-asset history) =======
     from . import marketdata as md
@@ -1506,6 +1541,8 @@ def create_app(services: Services | None = None) -> FastAPI:
     # ===================== PLATFORM (community/jobs/blog/...) =============
     platform = PlatformStore(services.settings.db_path)
     register_interview_routes(app, services.settings.db_path, security)
+    register_learner_routes(app, services, security)
+    register_learning_routes(app, services, security)
 
     def platform_identity(request: Request) -> AuthenticatedIdentity | None:
         """Return the verified browser identity for user-owned platform data.

@@ -409,6 +409,8 @@ def main() -> None:
         services.retriever.refresh()
 
     output_dir = Path(args.output_dir).expanduser().resolve()
+    if args.language == "en" and output_dir.is_relative_to((Path(__file__).resolve().parents[1] / "pricinglibrary_rag" / "course_scripts").resolve()):
+        parser.error("English drafts must be generated outside the served tree; use generate_english_courses.py for gated promotion")
     output_dir.mkdir(parents=True, exist_ok=True)
     agent = PracticeAgent(services.generator)
     specs = (
@@ -421,6 +423,8 @@ def main() -> None:
     documents = services.store.list_documents(limit=10_000)
 
     index = {
+        "language": args.language,
+        "status": "draft_pending_review" if args.language == "en" else "generated",
         "generated_at": _now_label(),
         "llm": services.llm.name,
         "db_path": str(services.settings.db_path),
@@ -510,10 +514,14 @@ def _ingest_roots(services, roots: Iterable[Path], *, force: bool) -> None:
 
 def _course_markdown(spec: CourseSpec, response) -> str:
     concepts = ", ".join(spec.concepts)
-    formula_block = _formula_bank_markdown(spec.slug)
+    language = response.metadata.get("language", "fr")
+    # The original EN authoring branch includes its own derivations and checked
+    # formula applications. Do not append a French legacy formula section.
+    formula_block = "" if language == "en" else _formula_bank_markdown(spec.slug)
     source_appendix = _source_appendix(response)
     return f"""---
 slug: {spec.slug}
+language: {language}
 topic: {spec.topic}
 product: {spec.product or ""}
 level: {spec.level}

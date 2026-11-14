@@ -1,0 +1,957 @@
+{
+  "schema_version": "tpl.practice-library.v1",
+  "exercises": [
+    {
+      "id": "realized-vol-estimators",
+      "title": "Compare Historical Volatility Estimators",
+      "cat": "Volatility",
+      "level": "L2",
+      "time": "30m",
+      "product": "dated OHLC observations",
+      "concept": "realized volatility, overnight returns and annualisation",
+      "courseIds": [
+        "implied-vol",
+        "market-risk-var"
+      ],
+      "description": "Use one synthetic OHLC sample to explain why five realized-volatility estimates differ; this is not implied-volatility inversion.",
+      "objective": "Reproduce all five estimates on the same sessions, audit overnight risk and state the annualisation convention.",
+      "marketData": [
+        [
+          "Source",
+          "Original synthetic OHLC example; not live or observed market data"
+        ],
+        [
+          "Rows / usable sessions",
+          "12 rows / 11 common sessions"
+        ],
+        [
+          "Dates",
+          "2024-01-02 to 2024-01-17, weekday observations"
+        ],
+        [
+          "Annualisation",
+          "252 sessions per year"
+        ],
+        [
+          "Price adjustment",
+          "Unadjusted hypothetical prices; no corporate action implied"
+        ]
+      ],
+      "steps": [
+        "Use the CSV in the Python starter; the first row supplies the previous close.",
+        "Compute close-to-close sample variance with denominator n−1. Compare Parkinson, Garman-Klass and Rogers-Satchell over the same 11 sessions.",
+        "Add overnight variance in Yang-Zhang and explain why a range estimator can miss gap risk.",
+        "Change only annualisation from 252 to 365. Explain the sqrt(365/252) change; do not call it a change in observed daily variance.",
+        "Use the Realized Volatility Lab synthetic example to check your numbers, export the evidence and state why none of these is a market implied-volatility quote."
+      ],
+      "hints": [
+        "All estimators must share the same session set, rows 1..N−1.",
+        "Sample variances center returns and use n−1; range contributions are averaged over n.",
+        "Do not mix adjusted closes with unadjusted OHLC ranges. A calendar gap is a data-quality fact to inspect, not an automatic zero return."
+      ],
+      "starterCode": "import csv, io, json\nfrom math import log, sqrt\nfrom statistics import mean, variance\n\nCSV = \"\"\"date,open,high,low,close\n2024-01-02,100.00,101.40,99.35,100.90\n2024-01-03,101.05,102.10,100.20,101.55\n2024-01-04,101.40,102.00,99.80,100.15\n2024-01-05,100.25,101.65,99.90,101.20\n2024-01-08,101.45,102.80,100.95,102.35\n2024-01-09,102.20,103.10,101.20,101.75\n2024-01-10,101.60,102.45,100.70,101.10\n2024-01-11,101.35,103.00,101.05,102.70\n2024-01-12,102.55,103.25,101.70,102.05\n2024-01-15,102.20,103.60,101.85,103.10\n2024-01-16,103.00,104.10,102.35,103.75\n2024-01-17,103.90,104.45,102.70,103.05\n\"\"\"\nrows = [{k: (v if k == \"date\" else float(v)) for k,v in row.items()} for row in csv.DictReader(io.StringIO(CSV))]\nsessions = [(previous, row) for previous, row in zip(rows, rows[1:])]\n# The first row anchors the previous close; every estimator uses the same 11 sessions.\nclose = [log(row[\"close\"] / previous[\"close\"]) for previous,row in sessions]\novernight = [log(row[\"open\"] / previous[\"close\"]) for previous,row in sessions]\nopen_close = [log(row[\"close\"] / row[\"open\"]) for previous,row in sessions]\nhigh_low = [log(row[\"high\"] / row[\"low\"]) for previous,row in sessions]\nrs = mean(log(row[\"high\"]/row[\"open\"])*log(row[\"high\"]/row[\"close\"]) + log(row[\"low\"]/row[\"open\"])*log(row[\"low\"]/row[\"close\"]) for _,row in sessions)\nn = len(sessions)\nk = 0.34 / (1.34 + (n+1)/(n-1))\n# TODO: calculate the five daily variances and sqrt(252 * variance).\nprint(f\"Common sessions: {n}; Yang-Zhang weight: {k:.6f}\")\n",
+      "output": "Original synthetic example, 252 sessions/year, 11 common sessions:\ncloseToClose: 15.73591361%\nparkinson: 17.15027235%\ngarmanKlass: 18.39255738%\nrogersSatchell: 18.05823305%\nyangZhang: 17.75005135%\nChanging to 365 multiplies annualized volatility by sqrt(365/252); daily variance is unchanged.",
+      "solution": "import csv, io, json\nfrom math import log, sqrt\nfrom statistics import mean, variance\n\nCSV = \"\"\"date,open,high,low,close\n2024-01-02,100.00,101.40,99.35,100.90\n2024-01-03,101.05,102.10,100.20,101.55\n2024-01-04,101.40,102.00,99.80,100.15\n2024-01-05,100.25,101.65,99.90,101.20\n2024-01-08,101.45,102.80,100.95,102.35\n2024-01-09,102.20,103.10,101.20,101.75\n2024-01-10,101.60,102.45,100.70,101.10\n2024-01-11,101.35,103.00,101.05,102.70\n2024-01-12,102.55,103.25,101.70,102.05\n2024-01-15,102.20,103.60,101.85,103.10\n2024-01-16,103.00,104.10,102.35,103.75\n2024-01-17,103.90,104.45,102.70,103.05\n\"\"\"\nrows = [{k: (v if k == \"date\" else float(v)) for k,v in row.items()} for row in csv.DictReader(io.StringIO(CSV))]\nsessions = [(previous, row) for previous, row in zip(rows, rows[1:])]\n# The first row anchors the previous close; every estimator uses the same 11 sessions.\nclose = [log(row[\"close\"] / previous[\"close\"]) for previous,row in sessions]\novernight = [log(row[\"open\"] / previous[\"close\"]) for previous,row in sessions]\nopen_close = [log(row[\"close\"] / row[\"open\"]) for previous,row in sessions]\nhigh_low = [log(row[\"high\"] / row[\"low\"]) for previous,row in sessions]\nrs = mean(log(row[\"high\"]/row[\"open\"])*log(row[\"high\"]/row[\"close\"]) + log(row[\"low\"]/row[\"open\"])*log(row[\"low\"]/row[\"close\"]) for _,row in sessions)\nn = len(sessions)\nk = 0.34 / (1.34 + (n+1)/(n-1))\nvariances = {\n    \"closeToClose\": variance(close),\n    \"parkinson\": mean(x*x for x in high_low)/(4*log(2)),\n    \"garmanKlass\": mean(0.5*h*h - (2*log(2)-1)*c*c for h,c in zip(high_low,open_close)),\n    \"rogersSatchell\": rs,\n    \"yangZhang\": variance(overnight) + k*variance(open_close) + (1-k)*rs,\n}\nannualized = {name: sqrt(252*max(0,value)) for name,value in variances.items()}\nif __name__ == \"__main__\":\n    print(json.dumps({\"sessions\": n, \"annualization\": 252, \"annualizedVolatility\": annualized}, indent=2))\n",
+      "grading": [
+        [
+          "Same sessions and sample variance",
+          "3 pts"
+        ],
+        [
+          "OHLC estimator formulas",
+          "3 pts"
+        ],
+        [
+          "Overnight/annualisation explanation",
+          "2 pts"
+        ],
+        [
+          "Provenance, limits and exported evidence",
+          "2 pts"
+        ]
+      ]
+    },
+    {
+      "id": "bs-eur-call",
+      "title": "Quote a European Call",
+      "cat": "Black-Scholes",
+      "level": "L1",
+      "time": "20m",
+      "product": "equity option",
+      "concept": "Black-Scholes quote control",
+      "courseIds": [
+        "black-scholes"
+      ],
+      "description": "Price a vanilla call, check parity and produce a quote note.",
+      "objective": "Produce a controlled Black-Scholes quote for a vanilla European option and explain the risk in desk language.",
+      "marketData": [
+        [
+          "Spot",
+          "100"
+        ],
+        [
+          "Strike",
+          "100"
+        ],
+        [
+          "Rate",
+          "2%"
+        ],
+        [
+          "Volatility",
+          "20%"
+        ],
+        [
+          "Maturity",
+          "6 months"
+        ]
+      ],
+      "steps": [
+        "Compute d1 and d2 from the market inputs.",
+        "Compute call and put prices.",
+        "Check put-call parity.",
+        "Explain delta and vega in one sentence each.",
+        "Write a quote note with assumptions and limitations."
+      ],
+      "hints": [
+        "Use annualized volatility.",
+        "Discount strike with exp(-rT).",
+        "Parity gap should be close to zero."
+      ],
+      "starterCode": "from math import log, sqrt, exp\nfrom scipy.stats import norm\n\ndef bs_call(S, K, r, sigma, T):\n    # compute d1, d2 and return call price\n    pass\n\ndef bs_put(S, K, r, sigma, T):\n    # use either closed form or put-call parity\n    pass\n\nprint(bs_call(100, 100, 0.02, 0.20, 0.5))",
+      "output": ">>> python exercise.py\nCall price: 6.1207\nPut price: 5.1257\nParity gap: 0.0000\nDesk note: ATM call has delta slightly above 0.50 and positive vega.",
+      "solution": "def bs_call(S, K, r, sigma, T):\n    d1 = (log(S/K) + (r + 0.5*sigma**2)*T) / (sigma*sqrt(T))\n    d2 = d1 - sigma*sqrt(T)\n    return S*norm.cdf(d1) - K*exp(-r*T)*norm.cdf(d2)\n\ndef bs_put(S, K, r, sigma, T):\n    return bs_call(S, K, r, sigma, T) - S + K*exp(-r*T)",
+      "grading": [
+        [
+          "Pricing",
+          "3 pts"
+        ],
+        [
+          "Parity control",
+          "2 pts"
+        ],
+        [
+          "Risk explanation",
+          "3 pts"
+        ],
+        [
+          "Quote memo",
+          "2 pts"
+        ]
+      ]
+    },
+    {
+      "id": "options-book-greeks",
+      "title": "Attribute P&L on an Options Book",
+      "cat": "Greeks",
+      "level": "L3",
+      "time": "35m",
+      "product": "equity options book",
+      "concept": "delta gamma vega theta P&L",
+      "courseIds": [
+        "greeks"
+      ],
+      "description": "Compute delta-gamma-vega-theta P&L and recommend a hedge.",
+      "objective": "Turn a Greek report into P&L attribution and an operational hedge decision.",
+      "marketData": [
+        [
+          "Delta",
+          "+250k EUR per 1% spot"
+        ],
+        [
+          "Gamma",
+          "-80k EUR per 1%^2"
+        ],
+        [
+          "Vega",
+          "+120k EUR per vol point"
+        ],
+        [
+          "Theta",
+          "-15k EUR per day"
+        ],
+        [
+          "Scenario",
+          "Spot -2%, vol +3 points, one day passes"
+        ]
+      ],
+      "steps": [
+        "Compute delta P&L using percent-point units.",
+        "Compute gamma P&L using squared percent move.",
+        "Compute vega and theta P&L.",
+        "Add total scenario P&L.",
+        "Identify the dominant risk and propose hedge action."
+      ],
+      "hints": [
+        "Do not multiply 250k by -0.02 here.",
+        "The second-order gamma term is 0.5 * Gamma * move^2.",
+        "Short gamma loses under large spot moves."
+      ],
+      "starterCode": "delta_per_1pct = 250_000\ngamma_per_1pct2 = -80_000\nvega_per_vol_pt = 120_000\ntheta_per_day = -15_000\n\nspot_move_pct_points = -2\nvol_move_points = 3\n\n# compute pnl_delta, pnl_gamma, pnl_vega, pnl_theta, total",
+      "output": "Delta P&L: -500,000 EUR\nGamma P&L: -160,000 EUR\nVega P&L: +360,000 EUR\nTheta P&L: -15,000 EUR\nTotal: -315,000 EUR\nAction: reduce short gamma or add convexity before monitoring vega hedge mismatch.",
+      "solution": "pnl_delta = 250_000 * (-2)\npnl_gamma = 0.5 * -80_000 * ((-2) ** 2)\npnl_vega = 120_000 * 3\npnl_theta = -15_000\ntotal = pnl_delta + pnl_gamma + pnl_vega + pnl_theta",
+      "grading": [
+        [
+          "Unit handling",
+          "3 pts"
+        ],
+        [
+          "P&L attribution",
+          "3 pts"
+        ],
+        [
+          "Risk diagnosis",
+          "2 pts"
+        ],
+        [
+          "Hedge decision",
+          "2 pts"
+        ]
+      ]
+    },
+    {
+      "id": "swap-dv01",
+      "title": "Shock a EUR 5Y Swap Book",
+      "cat": "Rates",
+      "level": "L2",
+      "time": "30m",
+      "product": "EUR interest-rate swap",
+      "concept": "PV DV01 curve shock",
+      "courseIds": [
+        "rates-swaps",
+        "yield-curves"
+      ],
+      "description": "Estimate swap PV, DV01 and P&L under a parallel curve move.",
+      "objective": "Convert a swap ticket into PV, DV01 and hedge direction.",
+      "marketData": [
+        [
+          "Position",
+          "Payer EUR 5Y swap"
+        ],
+        [
+          "Notional",
+          "100m EUR"
+        ],
+        [
+          "Fixed coupon",
+          "3.20%"
+        ],
+        [
+          "Current par rate",
+          "3.00%"
+        ],
+        [
+          "Annuity",
+          "4.55"
+        ],
+        [
+          "Shock",
+          "+10bp parallel"
+        ]
+      ],
+      "steps": [
+        "Compute PV from coupon gap times annuity times notional.",
+        "Compute DV01 from notional and annuity.",
+        "Estimate shock P&L for +10bp.",
+        "State whether payer benefits from rates up or down.",
+        "Suggest hedge direction."
+      ],
+      "hints": [
+        "1bp = 0.0001.",
+        "DV01 approx notional * annuity * 1bp.",
+        "A payer swap gains when rates rise."
+      ],
+      "starterCode": "notional = 100_000_000\nfixed = 0.032\npar = 0.030\nannuity = 4.55\nshock_bp = 10\n\n# pv = ?\n# dv01 = ?\n# shock_pnl = ?",
+      "output": "PV approx: -910,000 EUR\nDV01: 45,500 EUR/bp\nShock P&L for +10bp: +455,000 EUR\nAction: monitor curve-shape risk; parallel hedge can use offsetting receiver/pay fixed exposure.",
+      "solution": "pv = (par - fixed) * annuity * notional\ndv01 = notional * annuity * 0.0001\nshock_pnl = dv01 * 10",
+      "grading": [
+        [
+          "PV approximation",
+          "3 pts"
+        ],
+        [
+          "DV01",
+          "3 pts"
+        ],
+        [
+          "Shock sign",
+          "2 pts"
+        ],
+        [
+          "Hedge note",
+          "2 pts"
+        ]
+      ]
+    },
+    {
+      "id": "barrier-knock-in",
+      "title": "Map Barrier Option Gap Risk",
+      "cat": "Barrier",
+      "level": "L3",
+      "time": "35m",
+      "product": "FX barrier option",
+      "concept": "knock-out payoff and gap risk",
+      "courseIds": [
+        "exotics",
+        "structured-products"
+      ],
+      "description": "Evaluate barrier scenarios and explain why path dependence changes risk.",
+      "objective": "Build a payoff scenario table for a down-and-out FX call and identify gap risk near the barrier.",
+      "marketData": [
+        [
+          "Spot",
+          "EUR/USD 1.0800"
+        ],
+        [
+          "Strike",
+          "1.1000"
+        ],
+        [
+          "Barrier",
+          "Down-and-out 1.0000"
+        ],
+        [
+          "Notional",
+          "EUR 10m"
+        ],
+        [
+          "Scenarios",
+          "1.0500, 1.0000, 1.2000 without knock-out"
+        ]
+      ],
+      "steps": [
+        "State the activation condition.",
+        "Compute payoff in each scenario.",
+        "Identify when the option is knocked out.",
+        "Explain the discontinuity at the barrier.",
+        "Write the monitoring trigger for the desk."
+      ],
+      "hints": [
+        "Terminal spot is not enough if barrier was touched.",
+        "At the barrier the option ceases to exist.",
+        "Gap risk is not a smooth Greek."
+      ],
+      "starterCode": "notional = 10_000_000\nstrike = 1.10\nbarrier = 1.00\nscenarios = [1.05, 1.00, 1.20]\n\ndef payoff(spot, knocked_out=False):\n    # return USD payoff approximation\n    pass",
+      "output": "S=1.0500: payoff 0\nS=1.0000: knocked out, payoff 0\nS=1.2000 no knock-out: payoff 1,000,000 USD approx\nAction: escalate monitoring as spot approaches barrier; delta hedge is unreliable around a jump to knock-out.",
+      "solution": "def payoff(spot, knocked_out=False):\n    if knocked_out or spot <= barrier:\n        return 0\n    return max(spot - strike, 0) * notional",
+      "grading": [
+        [
+          "Path condition",
+          "3 pts"
+        ],
+        [
+          "Scenario payoff",
+          "3 pts"
+        ],
+        [
+          "Gap risk explanation",
+          "2 pts"
+        ],
+        [
+          "Monitoring action",
+          "2 pts"
+        ]
+      ]
+    },
+    {
+      "id": "smile-fit",
+      "title": "Clean and Fit a Vol Smile",
+      "cat": "Volatility",
+      "level": "L3",
+      "time": "40m",
+      "product": "equity index options",
+      "concept": "smile cleaning and SVI intuition",
+      "courseIds": [
+        "implied-vol"
+      ],
+      "description": "Clean option quotes and fit a usable implied-vol smile slice.",
+      "objective": "Turn noisy option prices into an implied-vol slice and explain skew.",
+      "marketData": [
+        [
+          "Underlying",
+          "SPX"
+        ],
+        [
+          "Tenor",
+          "30d"
+        ],
+        [
+          "Moneyness",
+          "80%, 90%, 100%, 110%, 120%"
+        ],
+        [
+          "Task",
+          "Clean impossible quotes and fit smile curvature"
+        ]
+      ],
+      "steps": [
+        "Reject quotes outside basic price bounds.",
+        "Invert remaining prices to implied vol.",
+        "Fit a smooth smile slice.",
+        "Identify skew direction.",
+        "Explain what demand or protection pressure could drive it."
+      ],
+      "hints": [
+        "Deep OTM puts often trade rich in equity indices.",
+        "Do not fit crossed or stale quotes.",
+        "A smooth fit can still be economically wrong."
+      ],
+      "starterCode": "quotes = [\n    {\"moneyness\": 0.80, \"iv\": 0.29},\n    {\"moneyness\": 0.90, \"iv\": 0.23},\n    {\"moneyness\": 1.00, \"iv\": 0.18},\n    {\"moneyness\": 1.10, \"iv\": 0.16},\n    {\"moneyness\": 1.20, \"iv\": 0.17},\n]\n\n# fit a simple quadratic in log-moneyness",
+      "output": "Smile cleaned: 5 quotes retained\nSkew: downside vol > ATM vol > upside vol\nAction: flag downside protection demand and stress put-spread hedges.",
+      "solution": "# Minimal route:\n# x = log(K/S), y = total variance or IV\n# fit y = a + b*x + c*x*x\n# inspect b < 0 for equity-index downside skew",
+      "grading": [
+        [
+          "Data cleaning",
+          "2 pts"
+        ],
+        [
+          "IV fit",
+          "3 pts"
+        ],
+        [
+          "Skew interpretation",
+          "3 pts"
+        ],
+        [
+          "Desk action",
+          "2 pts"
+        ]
+      ]
+    },
+    {
+      "id": "mc-asian",
+      "title": "Monte Carlo an Asian Option",
+      "cat": "Monte Carlo",
+      "level": "L3",
+      "time": "35m",
+      "product": "Asian option",
+      "concept": "path simulation and confidence interval",
+      "courseIds": [
+        "monte-carlo"
+      ],
+      "description": "Simulate average-price payoff and report confidence interval.",
+      "objective": "Price an arithmetic Asian call with Monte Carlo and report uncertainty.",
+      "marketData": [
+        [
+          "Spot",
+          "100"
+        ],
+        [
+          "Strike",
+          "100"
+        ],
+        [
+          "Rate",
+          "2%"
+        ],
+        [
+          "Volatility",
+          "20%"
+        ],
+        [
+          "Maturity",
+          "1y monthly monitoring"
+        ],
+        [
+          "Paths",
+          "100,000"
+        ]
+      ],
+      "steps": [
+        "Simulate GBM monthly paths.",
+        "Compute arithmetic average spot.",
+        "Compute discounted payoff.",
+        "Estimate standard error.",
+        "Report 95% confidence interval and caveats."
+      ],
+      "hints": [
+        "Use a fixed random seed.",
+        "Average along each path, not across paths first.",
+        "Confidence interval matters."
+      ],
+      "starterCode": "import numpy as np\n\ndef price_asian_call(S0, K, r, sigma, T, steps, paths, seed=7):\n    rng = np.random.default_rng(seed)\n    # simulate paths and return price, stderr\n    pass",
+      "output": "Asian call price: 5.36\nStd error: 0.03\n95% CI: [5.31, 5.41]\nConvention: monthly observations exclude t=0; NumPy default_rng(seed=7)\nAction: report model and discretization assumptions with the quote.",
+      "solution": "# Generate normal shocks, evolve GBM, average each path,\n# payoff = max(avg - K, 0), price = exp(-rT) * mean(payoff),\n# stderr = exp(-rT) * std(payoff) / sqrt(paths).",
+      "grading": [
+        [
+          "Simulation",
+          "3 pts"
+        ],
+        [
+          "Payoff logic",
+          "2 pts"
+        ],
+        [
+          "Uncertainty",
+          "3 pts"
+        ],
+        [
+          "Caveats",
+          "2 pts"
+        ]
+      ]
+    },
+    {
+      "id": "curve-boot",
+      "title": "Bootstrap a Zero Curve",
+      "cat": "Yield Curves",
+      "level": "L2",
+      "time": "30m",
+      "product": "interest-rate curve",
+      "concept": "discount factors bootstrapping",
+      "courseIds": [
+        "yield-curves",
+        "rates-swaps"
+      ],
+      "description": "Build discount factors from simple market instruments.",
+      "objective": "Recover discount factors from quoted rates and use them for pricing.",
+      "marketData": [
+        [
+          "1Y swap",
+          "3.00%"
+        ],
+        [
+          "2Y swap",
+          "3.20%"
+        ],
+        [
+          "3Y swap",
+          "3.35%"
+        ],
+        [
+          "Fixed leg",
+          "Annual"
+        ]
+      ],
+      "steps": [
+        "Convert quotes to decimal rates.",
+        "Bootstrap each maturity recursively.",
+        "Check discount factors decrease with maturity.",
+        "Compute zero rates.",
+        "Explain one limitation of the simple setup."
+      ],
+      "hints": [
+        "Use previous discount factors for the fixed leg.",
+        "Monotonicity is a sanity check.",
+        "Real desks need day count and calendars."
+      ],
+      "starterCode": "swap_rates = {1: 0.030, 2: 0.032, 3: 0.0335}\ndfs = {}\n\n# bootstrap annual discount factors",
+      "output": "DF(1Y): 0.9709\nDF(2Y): 0.9389\nDF(3Y): 0.9057\nAction: use the curve for rough pricing only; production requires conventions and interpolation controls.",
+      "solution": "# For maturity n:\n# par = (1 - DF_n) / sum_{i=1..n} DF_i\n# DF_n = (1 - par * sum_previous_dfs) / (1 + par)",
+      "grading": [
+        [
+          "Bootstrap recursion",
+          "4 pts"
+        ],
+        [
+          "Sanity checks",
+          "2 pts"
+        ],
+        [
+          "Zero rates",
+          "2 pts"
+        ],
+        [
+          "Limitations",
+          "2 pts"
+        ]
+      ]
+    },
+    {
+      "id": "delta-hedge",
+      "title": "Run a Daily Delta Hedge",
+      "cat": "Greeks",
+      "level": "L2",
+      "time": "25m",
+      "product": "option hedge",
+      "concept": "delta rebalancing",
+      "courseIds": [
+        "greeks"
+      ],
+      "description": "Compute hedge shares and explain rebalancing P&L.",
+      "objective": "Size a delta hedge and explain why it must be rebalanced.",
+      "marketData": [
+        [
+          "Option position",
+          "Long 1,000 calls"
+        ],
+        [
+          "Contract multiplier",
+          "100 shares"
+        ],
+        [
+          "Delta",
+          "0.54"
+        ],
+        [
+          "Next-day delta",
+          "0.61"
+        ]
+      ],
+      "steps": [
+        "Compute initial share hedge.",
+        "Compute new hedge after delta changes.",
+        "State rebalance trade.",
+        "Explain why gamma causes delta drift.",
+        "Mention transaction-cost tradeoff."
+      ],
+      "hints": [
+        "Long calls have positive delta.",
+        "To hedge long delta, sell shares.",
+        "Gamma changes delta as spot moves."
+      ],
+      "starterCode": "contracts = 1000\nmultiplier = 100\ndelta0 = 0.54\ndelta1 = 0.61\n\n# shares_to_sell_0 = ?\n# rebalance_trade = ?",
+      "output": "Initial hedge: sell 54,000 shares\nNew hedge target: sell 61,000 shares\nRebalance: sell 7,000 additional shares\nAction: monitor gamma and transaction cost; hedge frequency is a desk decision.",
+      "solution": "shares0 = contracts * multiplier * delta0\nshares1 = contracts * multiplier * delta1\nrebalance = shares1 - shares0",
+      "grading": [
+        [
+          "Hedge sign",
+          "3 pts"
+        ],
+        [
+          "Rebalance math",
+          "3 pts"
+        ],
+        [
+          "Gamma explanation",
+          "2 pts"
+        ],
+        [
+          "Cost tradeoff",
+          "2 pts"
+        ]
+      ]
+    },
+    {
+      "id": "iv-newton",
+      "title": "Implied Vol via Newton-Raphson",
+      "cat": "Volatility",
+      "level": "L2",
+      "time": "25m",
+      "product": "vanilla option",
+      "concept": "implied volatility inversion",
+      "courseIds": [
+        "implied-vol",
+        "black-scholes"
+      ],
+      "description": "Recover implied volatility from a market option price.",
+      "objective": "Invert Black-Scholes using Newton-Raphson and explain failure modes.",
+      "marketData": [
+        [
+          "Call market price",
+          "8.00"
+        ],
+        [
+          "Spot",
+          "100"
+        ],
+        [
+          "Strike",
+          "100"
+        ],
+        [
+          "Rate",
+          "2%"
+        ],
+        [
+          "Maturity",
+          "6 months"
+        ]
+      ],
+      "steps": [
+        "Start from a reasonable volatility guess.",
+        "Compute price and vega.",
+        "Update sigma with price error divided by vega.",
+        "Stop on tolerance.",
+        "Explain what happens when vega is too low."
+      ],
+      "hints": [
+        "Newton step is sigma -= error / vega.",
+        "Use vega per vol unit, not per vol point.",
+        "Deep ITM/OTM options can be unstable."
+      ],
+      "starterCode": "def implied_vol(target_price, S, K, r, T, guess=0.20):\n    sigma = guess\n    for _ in range(20):\n        # compute price and vega\n        # update sigma\n        pass\n    return sigma",
+      "output": "Implied volatility: 26.73%\nIterations: 4\nAction: flag low-vega options for robust solver or quote filtering.",
+      "solution": "# sigma_next = sigma - (bs_price(sigma) - target_price) / vega_unit\n# clamp sigma to positive range and stop when abs(error) < tolerance",
+      "grading": [
+        [
+          "Newton update",
+          "4 pts"
+        ],
+        [
+          "Vega units",
+          "2 pts"
+        ],
+        [
+          "Convergence controls",
+          "2 pts"
+        ],
+        [
+          "Failure explanation",
+          "2 pts"
+        ]
+      ]
+    },
+    {
+      "id": "autocall",
+      "title": "Build an Autocall Scenario Table",
+      "cat": "Exotic",
+      "level": "L4",
+      "time": "55m",
+      "product": "autocallable note",
+      "concept": "coupon and redemption scenarios",
+      "courseIds": [
+        "exotics",
+        "structured-products"
+      ],
+      "description": "Map coupons, autocall events and final redemption under scenarios.",
+      "objective": "Translate a structured-product term sheet into cash-flow scenarios.",
+      "marketData": [
+        [
+          "Autocall level",
+          "100% initial"
+        ],
+        [
+          "Coupon barrier",
+          "70%"
+        ],
+        [
+          "Protection barrier",
+          "60%"
+        ],
+        [
+          "Coupon",
+          "8% p.a. paid quarterly if condition met"
+        ],
+        [
+          "Maturity",
+          "2 years"
+        ]
+      ],
+      "steps": [
+        "List each observation date condition.",
+        "Build up/flat/down path scenarios.",
+        "Compute coupon payments.",
+        "Determine early redemption.",
+        "Explain client payoff and desk risk."
+      ],
+      "hints": [
+        "Autocall ends the note early.",
+        "Coupon memory changes cash flows.",
+        "Protection barrier matters at final observation."
+      ],
+      "starterCode": "paths = {\n    \"up\": [1.02, 1.04],\n    \"flat\": [0.95, 0.99, 1.01],\n    \"down\": [0.82, 0.68, 0.55],\n}\n\n# produce cash-flow table",
+      "output": "Up path: autocall at first observation, coupon paid\nFlat path: coupon paid while above barrier, possible later autocall\nDown path: missed coupon below 70%, capital loss if final below 60%\nAction: communicate path dependency and downside participation clearly.",
+      "solution": "# For each path and observation:\n# if level >= autocall: pay coupon + redeem 100 and stop\n# elif level >= coupon_barrier: pay coupon\n# at maturity: if final < protection_barrier, redeem final performance",
+      "grading": [
+        [
+          "Cash-flow map",
+          "4 pts"
+        ],
+        [
+          "Scenario logic",
+          "3 pts"
+        ],
+        [
+          "Client explanation",
+          "2 pts"
+        ],
+        [
+          "Desk risk",
+          "1 pt"
+        ]
+      ]
+    },
+    {
+      "id": "cds-cs01",
+      "title": "Measure CDS CS01 and Carry",
+      "cat": "Credit",
+      "level": "L3",
+      "time": "30m",
+      "product": "single-name CDS",
+      "concept": "CS01 spread shock carry",
+      "courseIds": [
+        "credit-derivatives"
+      ],
+      "description": "Compute credit spread sensitivity and explain carry versus widening risk.",
+      "objective": "Estimate CS01, spread-shock P&L and carry for a CDS position.",
+      "marketData": [
+        [
+          "Notional",
+          "50m"
+        ],
+        [
+          "Spread",
+          "120bp"
+        ],
+        [
+          "Risky annuity",
+          "4.2"
+        ],
+        [
+          "Spread shock",
+          "+25bp"
+        ]
+      ],
+      "steps": [
+        "Compute annual carry from spread and notional.",
+        "Compute CS01 from notional, risky annuity and 1bp.",
+        "Compute P&L for +25bp spread widening.",
+        "Explain whether protection buyer gains or loses.",
+        "Write risk action."
+      ],
+      "hints": [
+        "CS01 is per basis point.",
+        "Sign depends on buy/sell protection.",
+        "Carry is not the same as mark-to-market."
+      ],
+      "starterCode": "notional = 50_000_000\nspread = 0.012\nrisky_annuity = 4.2\nshock_bp = 25\n\n# carry = ?\n# cs01 = ?\n# shock_pnl = ?",
+      "output": "Annual carry: 600,000 EUR\nCS01: 21,000 EUR/bp\nSpread shock PV move: 525,000 EUR before position sign\nAction: monitor jump/default risk; carry can be overwhelmed by widening.",
+      "solution": "carry = notional * spread\ncs01 = notional * risky_annuity * 0.0001\nshock_move = cs01 * shock_bp",
+      "grading": [
+        [
+          "Carry",
+          "2 pts"
+        ],
+        [
+          "CS01",
+          "3 pts"
+        ],
+        [
+          "Shock P&L",
+          "3 pts"
+        ],
+        [
+          "Risk note",
+          "2 pts"
+        ]
+      ]
+    },
+    {
+      "id": "parametric-var",
+      "title": "Compute a Desk VaR Limit",
+      "cat": "Risk",
+      "level": "L2",
+      "time": "25m",
+      "product": "portfolio",
+      "concept": "parametric VaR limit",
+      "courseIds": [
+        "market-risk-var"
+      ],
+      "description": "Estimate one-day VaR and decide whether to escalate limit usage.",
+      "objective": "Compute parametric VaR and translate it into a desk limit action.",
+      "marketData": [
+        [
+          "Portfolio value",
+          "20m"
+        ],
+        [
+          "Daily volatility",
+          "2%"
+        ],
+        [
+          "Confidence",
+          "95%"
+        ],
+        [
+          "Horizon",
+          "1 day"
+        ]
+      ],
+      "steps": [
+        "Select the normal quantile for 95%.",
+        "Compute one-day VaR.",
+        "Compare with a hypothetical 600k limit.",
+        "Add one stress scenario.",
+        "Recommend monitor, hedge or reduce."
+      ],
+      "hints": [
+        "95% one-sided normal quantile is about 1.65.",
+        "VaR is not a worst-case loss.",
+        "Stress testing complements VaR."
+      ],
+      "starterCode": "portfolio = 20_000_000\ndaily_vol = 0.02\nz_95 = 1.645\n\n# var_95 = ?",
+      "output": "VaR 95%: 658,000 EUR\nLimit 600,000 EUR: breached\nAction: escalate and reduce/hedge exposure; add stress loss for a -5% move.",
+      "solution": "var_95 = portfolio * daily_vol * z_95",
+      "grading": [
+        [
+          "VaR formula",
+          "3 pts"
+        ],
+        [
+          "Limit interpretation",
+          "3 pts"
+        ],
+        [
+          "Stress overlay",
+          "2 pts"
+        ],
+        [
+          "Action",
+          "2 pts"
+        ]
+      ]
+    },
+    {
+      "id": "bond-duration",
+      "title": "Estimate Bond DV01 from Duration",
+      "cat": "Rates",
+      "level": "L2",
+      "time": "25m",
+      "product": "fixed-income bond",
+      "concept": "duration DV01 shock P&L",
+      "courseIds": [
+        "fixed-income-bonds"
+      ],
+      "description": "Use duration to estimate bond price sensitivity under yield shocks.",
+      "objective": "Translate a bond position into DV01 and rate-shock P&L.",
+      "marketData": [
+        [
+          "Market value",
+          "25m EUR"
+        ],
+        [
+          "Modified duration",
+          "6.8"
+        ],
+        [
+          "Yield shock",
+          "+25bp"
+        ]
+      ],
+      "steps": [
+        "Compute DV01 from market value and duration.",
+        "Estimate P&L for +25bp.",
+        "Explain sign for long bond position.",
+        "State how convexity changes larger shocks.",
+        "Write a desk risk note."
+      ],
+      "hints": [
+        "Price falls when yield rises for a long bond.",
+        "DV01 = MV * duration * 1bp.",
+        "Convexity helps for large moves."
+      ],
+      "starterCode": "market_value = 25_000_000\nmod_duration = 6.8\nshock_bp = 25\n\n# dv01 = ?\n# pnl = ?",
+      "output": "DV01: 17,000 EUR/bp\nP&L for +25bp: -425,000 EUR\nAction: hedge duration with futures or swaps; convexity matters for larger shocks.",
+      "solution": "dv01 = market_value * mod_duration * 0.0001\npnl = -dv01 * shock_bp",
+      "grading": [
+        [
+          "DV01",
+          "3 pts"
+        ],
+        [
+          "Shock P&L sign",
+          "3 pts"
+        ],
+        [
+          "Convexity explanation",
+          "2 pts"
+        ],
+        [
+          "Risk note",
+          "2 pts"
+        ]
+      ]
+    }
+  ]
+}

@@ -15,6 +15,7 @@ import math
 import random
 import time
 import uuid
+import threading
 from dataclasses import dataclass, field
 
 # trading-day fraction per simulated tick of 1 second (8h day, 252d year)
@@ -29,21 +30,16 @@ def _npdf(x: float) -> float:
     return math.exp(-0.5 * x * x) / math.sqrt(2 * math.pi)
 
 
-def bs(S, K, r, sigma, T, kind="call"):
-    if T <= 0 or sigma <= 0:
-        intr = max(S - K, 0.0) if kind == "call" else max(K - S, 0.0)
-        return {"price": intr, "delta": 0.0, "vega": 0.0, "gamma": 0.0}
-    d1 = (math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
-    d2 = d1 - sigma * math.sqrt(T)
-    if kind == "call":
-        price = S * _ncdf(d1) - K * math.exp(-r * T) * _ncdf(d2)
-        delta = _ncdf(d1)
-    else:
-        price = K * math.exp(-r * T) * _ncdf(-d2) - S * _ncdf(-d1)
-        delta = _ncdf(d1) - 1
-    return {"price": price, "delta": delta,
-            "vega": S * _npdf(d1) * math.sqrt(T) / 100,
-            "gamma": _npdf(d1) / (S * sigma * math.sqrt(T))}
+def bs(S, K, r, sigma, T, kind="call", q=0.0):
+    """Fast canonical scalar kernel; callers declare spot carry or forward q=r."""
+    from .black_scholes import _option
+    from .trusted_analytics import number
+    for value,name,low,high in [(S,"spot",1e-8,1e12),(K,"strike",1e-8,1e12),(r,"rate",-1,1),
+                                (sigma,"volatility",0,5),(T,"maturity",0,30),(q,"carry",-1,1)]:
+        number(value,name,low,high)
+    if kind not in {"call","put"}:raise ValueError("Option kind must be call or put.")
+    result=_option(S,K,T,r,q,sigma,kind)
+    return {"price":result["unitPrice"],**result["greeks"]}
 
 
 # --- market state -----------------------------------------------------------
@@ -57,7 +53,7 @@ class MarketState:
                                                  "USD": {"level": 0.0428, "slope": 0.003}})
     fx: dict = field(default_factory=lambda: {"EURUSD": 1.0712})
     credit: dict = field(default_factory=lambda: {"IG": 120.0})  # spread bp
-    spots: dict = field(default_factory=lambda: {"SPX": 5872.34, "WTI": 78.42, "GOLD": 2337.25,
+    spots: dict = field(default_factory=lambda: {"SPX": 5872.34, "SX5E":5000.0, "WTI": 78.42, "GOLD": 2337.25,
                                                  "BRENT": 82.15, "BTC": 61250.0, "ETH": 3380.0})
     vols: dict = field(default_factory=lambda: {"SPX": 0.18, "WTI": 0.30, "BTC": 0.55, "ETH": 0.66})
 
@@ -86,8 +82,10 @@ class MarketSimulator:
         return self.rng.gauss(0.0, 1.0)
 
     def tick(self, m: MarketState, seconds: float = 1.0) -> None:
+        from .trusted_analytics import number
+        seconds=number(seconds,'seconds',0,2678400)
         dt = seconds / _YEAR_SECONDS
-        sq = math.sqrt(max(dt, 1e-12))
+        sq = math.sqrt(dt)
         # Vasicek short rates (mean-revert to anchor), gentle slope drift
         for ccy, anchor in (("EUR", 0.038), ("USD", 0.0428)):
             r = m.rates[ccy]
@@ -100,7 +98,7 @@ class MarketSimulator:
         s = m.credit["IG"]
         m.credit["IG"] = max(20.0, s + 8.0 * (120.0 - s) * dt + 35.0 * sq * self._z())
         # spots GBM, vols OU
-        for k, drift, vol in (("SPX", 0.05, m.vols["SPX"]), ("WTI", 0.0, m.vols["WTI"]),
+        for k, drift, vol in (("SPX", 0.05, m.vols["SPX"]), ("SX5E",0.04,0.22), ("WTI", 0.0, m.vols["WTI"]),
                               ("GOLD", 0.02, 0.16), ("BRENT", 0.0, 0.30),
                               ("BTC", 0.10, m.vols["BTC"]), ("ETH", 0.10, m.vols["ETH"])):
             m.spots[k] *= math.exp((drift - 0.5 * vol ** 2) * dt + vol * sq * self._z())
@@ -149,7 +147,8 @@ class Position:
         elif self.kind == "option":
             u = self.entry["underlying"]
             S, vol = m.spots[u], m.vols.get(u, 0.2)
-            o = bs(S, self.entry["strike"], m.rates["USD"]["level"], vol, T, self.entry.get("type", "call"))
+            rate=m.rates["USD"]["level"]
+            o = bs(S, self.entry["strike"], rate, vol, T, self.entry.get("type", "call"),q=rate if u in {"WTI","BRENT","GOLD"} else 0)
             self.mtm = self.side * (o["price"] - self.entry["premium"]) * self.entry["contracts"]
             self.greeks = {"delta": round(self.side * o["delta"] * self.entry["contracts"], 1),
                            "vega": round(self.side * o["vega"] * self.entry["contracts"], 1)}
@@ -176,6 +175,10 @@ class Book:
 class TradingRoom:
     def __init__(self, seed: int = 20260627):
         self.market = MarketState()
+        self.paper_positions=[]
+        self.paper_journal=[]
+        self.paper_requests={}
+        self.paper_lock=threading.RLock()
         self.sim = MarketSimulator(seed)
         self.books: dict[str, Book] = {d: Book(d) for d in ("Rates", "Credit", "FX", "Commodities", "CryptoVol")}
         self.orders: list[dict] = []
@@ -227,7 +230,8 @@ class TradingRoom:
     def add_option(self, underlying, contracts, side, strike, tenor, label=""):
         m = self.market
         vol = m.vols.get(underlying, 0.2)
-        prem = bs(m.spots[underlying], strike, m.rates["USD"]["level"], vol, tenor, "call")["price"]
+        rate=m.rates["USD"]["level"]
+        prem = bs(m.spots[underlying], strike, rate, vol, tenor, "call",q=rate if underlying in {"WTI","BRENT","GOLD"} else 0)["price"]
         desk = {"WTI": "Commodities", "BTC": "CryptoVol", "ETH": "CryptoVol"}.get(underlying, "FX")
         p = Position(id=_pid("OPT"), desk=desk,
                      kind="option", label=label or f"{underlying} option", ccy="USD",
@@ -273,7 +277,7 @@ class TradingRoom:
         return sum(b.cs01() for b in self.books.values())
 
     def positions_count(self) -> int:
-        return sum(len(b.positions) for b in self.books.values())
+        return sum(len(b.positions) for b in self.books.values())+len(self.paper_positions)
 
     def risk_status(self) -> str:
         dv = abs(self.total_dv01())
@@ -286,7 +290,9 @@ class TradingRoom:
     # --- snapshot for the frontend / agents --------------------------------
     def snapshot(self) -> dict:
         m = self.market
-        return {
+        from .paper_book import paper_snapshot
+        paper=paper_snapshot(self)
+        result={
             "clock": m.clock_str(),
             "elapsed_years": round(m.elapsed, 6),
             "market_watch": {
@@ -297,6 +303,7 @@ class TradingRoom:
                 "GOLD": {"v": f"{m.spots['GOLD']:,.2f}"},
                 "EUR/USD": {"v": f"{m.fx['EURUSD']:.4f}"},
                 "SPX": {"v": f"{m.spots['SPX']:,.2f}"},
+                "SX5E": {"v": f"{m.spots['SX5E']:,.2f}"},
                 "IG CDS": {"v": f"{m.credit['IG']:.0f}bp"},
                 "BTC": {"v": f"{m.spots['BTC']:,.0f}"},
                 "ETH": {"v": f"{m.spots['ETH']:,.0f}"},
@@ -307,10 +314,11 @@ class TradingRoom:
                 "pnl_today": round(self.total_pnl()),
                 "dv01": round(self.total_dv01()),
                 "cs01": round(self.total_cs01()),
-                "risk_status": self.risk_status(),
+                "risk_status": 'NOT_ASSESSED' if paper else self.risk_status(),
                 "positions": self.positions_count(),
                 "orders_in_flight": len(self.orders),
-                "limit_usage": round(min(1.0, abs(self.total_dv01()) / self.limits["dv01"]), 3),
+                "limit_usage": None if paper else round(abs(self.total_dv01()) / self.limits["dv01"], 3),
+                "risk_scope":"Legacy seeded teaching book only; paper positions have no complete aggregate risk approval.",
                 "pnl_curve": self.pnl_curve,
             },
             "books": {d: [{"id": p.id, "label": p.label, "kind": p.kind, "ccy": p.ccy,
@@ -319,6 +327,14 @@ class TradingRoom:
                            "time_left": round(p.time_left(m), 2)} for p in b.positions]
                       for d, b in self.books.items()},
         }
+        for position in paper:result['books'].setdefault(position['desk'],[]).append(position)
+        currencies={p['ccy'] for p in paper}
+        result.update({'paper_positions':paper,'paper_journal':list(self.paper_journal),
+                       'paper_summary':{'positions':len(paper),'pnl_by_currency':{c:sum(p['mtm'] for p in paper if p['ccy']==c) for c in currencies},'risk_status':'NOT_ASSESSED'},
+                       'market_data_status':'simulated_teaching_inputs',
+                       'seeded_book_notice':'Existing seed positions are teaching examples; they are separate from faithfully retained RFQ paper contracts.',
+                       'paper_book_scope':'Private process-memory teaching book; constant-maturity scenario marks, no broker, settlement or real approval.'})
+        return result
 
 
 def _pid(prefix: str) -> str:
@@ -327,10 +343,22 @@ def _pid(prefix: str) -> str:
 
 # process-level singleton: the room lives across requests (stateful)
 _ROOM: TradingRoom | None = None
+_PRIVATE_ROOMS: dict[str,TradingRoom]={}
+_ROOM_LOCK=threading.RLock()
 
 
-def get_room() -> TradingRoom:
+def get_room(owner_id: str|None=None) -> TradingRoom:
+    if owner_id is not None:
+        if not isinstance(owner_id,str) or not 1<=len(owner_id)<=160:raise ValueError('A valid signed owner identifier is required.')
+        with _ROOM_LOCK:
+            if owner_id not in _PRIVATE_ROOMS:
+                if len(_PRIVATE_ROOMS)>=128:raise RuntimeError('Teaching room capacity reached; no existing room was discarded.')
+                _PRIVATE_ROOMS[owner_id]=TradingRoom()
+            return _PRIVATE_ROOMS[owner_id]
     global _ROOM
     if _ROOM is None:
         _ROOM = TradingRoom()
     return _ROOM
+
+
+from .paper_book import apply_desk_quote_to_book

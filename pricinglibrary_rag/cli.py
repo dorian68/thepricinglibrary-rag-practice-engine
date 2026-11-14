@@ -642,7 +642,9 @@ def main(argv: list[str] | None = None) -> None:
                 payload = json.loads(args.payload)
             except json.JSONDecodeError as exc:
                 parser.error(f"--payload must be valid JSON: {exc}")
-            _print_json(registry.run(args.tool_name, payload=payload))
+            result=registry.run(args.tool_name, payload=payload)
+            _print_json(result)
+            if not result.get("ok"):raise SystemExit(2)
             return
         if args.command == "tool-coverage":
             _print_json(registry.coverage_report())
@@ -709,15 +711,15 @@ def main(argv: list[str] | None = None) -> None:
             from .mcp_adapter import TplMcpAdapter
 
             adapter = TplMcpAdapter(store=services.store)
-            _print_json(
-                adapter.call_tool(
+            result = adapter.call_tool(
                     args.tool_name,
                     payload=_parse_json_arg(parser, args.payload, "--payload"),
                     context=_parse_json_arg(parser, args.context, "--context"),
                     session_id=args.session_id,
                     agent_id=args.agent,
                 )
-            )
+            _print_json(result)
+            if not result.get('tool_result',{}).get('ok'):raise SystemExit(2)
             return
         if args.command == "session-compact":
             _print_json(
@@ -880,15 +882,15 @@ def main(argv: list[str] | None = None) -> None:
             _print_json(adapter.describe_tool(args.tool_name))
             return
         if args.command == "mcp-call":
-            _print_json(
-                adapter.call_tool(
+            result=adapter.call_tool(
                     args.tool_name,
                     payload=_parse_json_arg(parser, args.payload, "--payload"),
                     context=_parse_json_arg(parser, args.context, "--context"),
                     session_id=args.session_id,
                     agent_id=args.agent,
                 )
-            )
+            _print_json(result)
+            if not result["tool_result"].get("ok"):raise SystemExit(2)
             return
         if args.command == "mcp-handle":
             request = _parse_json_arg(parser, args.request, "--request")

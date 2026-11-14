@@ -328,6 +328,60 @@ def _json(value) -> str:
 class InterviewLabStore:
     """Account-scoped append-only events on the existing platform SQLite file."""
 
+    @staticmethod
+    def progress_summary(db: sqlite3.Connection, owner: str) -> dict:
+        """Project actual learner activity without copying private answers.
+
+        Called in the dashboard's read transaction. Older platform-only stores
+        need no migration and remain readable. Reading progress never creates an
+        Interview profile or credits activity.
+        """
+        summary = {
+            "event_count": 0, "attempt_count": 0, "case_count": 0,
+            "numerical_pass_count": 0, "independent_check_count": 0,
+            "reasoning_review_count": 0, "reported_active_seconds": 0,
+            "last_activity_at": None, "resume": None,
+            "certified_mastery": False,
+        }
+        exists = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='interview_events'"
+        ).fetchone()
+        if not exists:
+            return summary
+        profile = db.execute(
+            "SELECT current_task,active_seconds FROM interview_profiles WHERE owner_id=?", (owner,)
+        ).fetchone()
+        rows = db.execute(
+            "SELECT id,kind,case_id,variant,payload,created_at FROM interview_events "
+            "WHERE owner_id=? ORDER BY rowid", (owner,)
+        ).fetchall()
+        attempts = [json.loads(row["payload"]) for row in rows if row["kind"] == "attempt"]
+        reviews = [json.loads(row["payload"]) for row in rows if row["kind"].startswith("review:")]
+        passed = {(a["case_id"], a["variant"]) for a in attempts if a["numerical_pass"]}
+        independent = {(a["case_id"], a["variant"]) for a in attempts
+                       if a["numerical_pass"] and a["independent"]}
+        summary.update(
+            event_count=len(rows), attempt_count=len(attempts),
+            case_count=len({a["case_id"] for a in attempts}),
+            numerical_pass_count=len(passed), independent_check_count=len(independent),
+            reasoning_review_count=len({r["attempt_id"] for r in reviews}),
+            reported_active_seconds=profile["active_seconds"] if profile else 0,
+            last_activity_at=rows[-1]["created_at"] if rows else None,
+        )
+        if profile and rows:
+            task = json.loads(profile["current_task"])
+            case_id, variant = task.get("case_id"), task.get("variant", "primary")
+            if case_id in CASE_IDS and variant in ("primary", "transfer"):
+                prior = [row for row in rows if row["case_id"] == case_id and row["variant"] == variant]
+                phase = "feedback" if any(row["kind"] == "attempt" for row in prior) else (
+                    "reference" if any(row["kind"] == "reveal" for row in prior) else "answer"
+                )
+                summary["resume"] = {
+                    "case_id": case_id, "variant": variant, "phase": phase,
+                    "path": f"/interview/{case_id}?variant={variant}",
+                }
+        return summary
+
     def __init__(self, db_path: str | Path):
         self.db_path=str(db_path)
         with self._connect() as db:

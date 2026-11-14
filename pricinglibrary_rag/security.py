@@ -273,6 +273,8 @@ class ApiSecurity:
         "/agent/ag-ui/run",
         "/agent/course",
         "/agent/desk/run",
+        "/agent/desk/trade",
+        "/agent/desk/tick",
         "/agent/exercise",
         "/evaluation/response",
         "/platform/progress",
@@ -317,6 +319,8 @@ class ApiSecurity:
         "/platform/survival": "student",
         "/agent/ag-ui/run": "pro",
         "/agent/desk/run": "pro",
+        "/agent/desk/trade": "pro",
+        "/agent/desk/tick": "pro",
         "/generate/material-pack": "pro",
     }
 
@@ -376,6 +380,15 @@ class ApiSecurity:
         method = method.upper()
         if method in {"HEAD", "OPTIONS"}:
             return PUBLIC
+        if path.startswith("/learner/"):
+            if method == "GET" and (path in {"/learner/catalog", "/learner/services", "/learner/tools"}
+                                    or path.endswith("/example") or path.endswith("/preview")):
+                return PUBLIC
+            if method == "POST" and path in {"/learner/tools/bs-pricer", "/learner/tools/black-scholes"}:
+                return PUBLIC_RATE_LIMITED
+            return IDENTITY
+        if path.startswith("/learning/"):
+            return IDENTITY
         if method == "GET":
             if path == "/interview/pilot/metrics":
                 return OPERATOR

@@ -9,10 +9,30 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any
+
+
+def _implementation(name: str) -> str:
+    if name.startswith("canonical."):
+        from .canonical_tools import list_canonical_tools
+        tool=next((t for t in list_canonical_tools() if t["id"]==name.split(".",1)[1]),None)
+        return "calculated" if tool and tool["available"] else "unavailable"
+    leaf=name.split(".")[-1]
+    if name in {"calc.black_scholes","calc.black76","calc.garman_kohlhagen","calc.greeks","risk.compute_greeks","calc.no_arbitrage_checks"} or leaf in {
+        "price_vanilla_option","price_black76_option","price_black76_commodity_option","price_garman_kohlhagen","price_fx_option","price_crypto_option",
+        "compute_delta","compute_gamma","compute_vega","compute_theta","compute_rho","price_autocall","price_autocall_mc"}:
+        return "calculated"
+    if name in {"risk.check_limits","book.limit_usage","calc.swap_pv_dv01","calc.cds_cs01"}:return "calculated"
+    if name in {"tool.list","tool.describe","tool.healthcheck","tool.validate_input","tool.audit","tool.replay"}:return "implemented"
+    if name.endswith("live_trading_guard"):return "implemented"
+    if leaf in {"capture_rfq","parse_intent"}:return "implemented"
+    if "hash" in name or name.endswith("snapshot_freeze"):return "implemented"
+    if name.startswith("report.") and name!="report.export_pdf":return "implemented"
+    return "unavailable"
 
 
 PERMISSIONS = {
@@ -75,7 +95,12 @@ class ToolSpec:
     job_expectations: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        value=asdict(self)
+        status=_implementation(self.name)
+        value.update({"implementation_status":status,"executable":status!="unavailable",
+                      "capability_notice":"Executed adapter, subject to validated inputs." if status!="unavailable" else
+                          "Descriptor retained; no executable adapter is connected. Calls return unavailable without fabricated results."})
+        return value
 
 
 @dataclass(frozen=True)
@@ -587,6 +612,13 @@ def _build_tools() -> dict[str, ToolSpec]:
         for name in names:
             spec = _make_tool("quant_pipeline", role, name)
             tools[spec.name] = spec
+    from .canonical_tools import list_canonical_tools
+    for canonical in list_canonical_tools():
+        name="canonical."+canonical["id"]
+        tools[name]=ToolSpec(name=name,owner_agent="Common",orchestration="common",permission="calculate",category="canonical_calculation",
+            description="Execute the actual versioned "+canonical["id"]+" engine with its strict canonical JSON input.",
+            input_schema={"type":"object","properties":{"input":{"type":"object"},"format":{"enum":canonical["formats"]}},"required":["input"],"additionalProperties":False},
+            output_schema=_schema(),artifact="VerifiedCalculation")
     return tools
 
 
@@ -642,14 +674,26 @@ class ToolRegistry:
     def validate_input(self, tool_name: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         spec = self._resolve(tool_name)
         payload = payload or {}
+        if not isinstance(payload,dict):
+            return {'ok':False,'tool':spec.name,'missing':[],'errors':['payload must be an object'],'schema':spec.input_schema}
         missing = [key for key in spec.input_schema.get("required", []) if key not in payload]
-        return {"ok": not missing, "tool": spec.name, "missing": missing, "schema": spec.input_schema}
+        errors=[];leaf=spec.name.split('.')[-1]
+        exclusions={'risk.check_limits','book.limit_usage','calc.swap_pv_dv01','calc.cds_cs01'}
+        if _implementation(spec.name)=='calculated' and not spec.name.startswith('canonical.') and spec.name not in exclusions and leaf not in {'price_autocall','price_autocall_mc'}:
+            from .trusted_analytics import normalise_ticket
+            model='black76' if 'black76' in leaf else 'gk' if leaf in {'garman_kohlhagen','price_garman_kohlhagen','price_fx_option'} else 'bsm'
+            try:normalise_ticket(payload,model=model)
+            except (ValueError,TypeError) as exc:errors.append(str(exc))
+        return {"ok": not missing and not errors, "tool": spec.name, "missing": missing,'errors':errors,"schema": spec.input_schema,
+                'validation_scope':'Declared required keys and supported input adapters; model/market validation and deployment approval are not implied.'}
 
     def healthcheck(self, tool_name: str) -> dict[str, Any]:
         spec = self._resolve(tool_name)
         contract = bool(spec.input_schema and spec.output_schema and spec.permission in PERMISSIONS)
         return {
-            "ok": contract,
+            "ok": contract and _implementation(spec.name)!="unavailable",
+            "descriptor_ok": contract,
+            "implementation_status":_implementation(spec.name),
             "tool": spec.name,
             "permission": spec.permission,
             "audit_level": spec.audit_level,
@@ -665,10 +709,11 @@ class ToolRegistry:
         if not validation["ok"]:
             output = {
                 "status": "failed",
+                "data": None,
                 "artifact": spec.artifact,
                 "summary": "Input validation failed.",
                 "evidence": [],
-                "warnings": [f"missing: {', '.join(validation['missing'])}"],
+                "warnings": ([f"missing: {', '.join(validation['missing'])}"] if validation['missing'] else [])+validation.get('errors',[]),
             }
             return self._record(spec, payload, output, ok=False)
         if spec.requires_confirmation and not payload.get("confirmed") and not context.get("confirmed"):
@@ -680,7 +725,11 @@ class ToolRegistry:
                 "warnings": ["confirmation_required"],
             }
             return self._record(spec, payload, output, ok=False)
-        output = self._execute(spec, payload, context)
+        try:
+            output = self._execute(spec, payload, context)
+        except (ValueError,TypeError,KeyError,RuntimeError) as exc:
+            output={"status":"failed","artifact":spec.artifact,"summary":"A valid explicit input is required.",
+                    "data":None,"evidence":[],"warnings":[str(exc)]}
         return self._record(spec, payload, output, ok=output.get("status") == "ok")
 
     def audit(self, tool_call_id: str) -> dict[str, Any]:
@@ -705,12 +754,18 @@ class ToolRegistry:
                 "bar": spec.satisfaction_bar,
                 "ok": len(role_specific) >= (17 if spec.orchestration == "quant_pipeline" else 21),
             }
+        descriptors_ok=all(v["ok"] for v in per_agent.values())
+        executable=sum(_implementation(name)!="unavailable" for name in self.tools)
         return {
             "agents": per_agent,
             "tool_count": len(self.tools),
             "common_tool_count": sum(1 for s in self.tools.values() if s.owner_agent == "Common"),
             "agent_count": len(self.agents),
-            "all_ok": all(v["ok"] for v in per_agent.values()),
+            "all_ok": descriptors_ok and executable==len(self.tools),
+            "all_descriptors_valid":descriptors_ok,
+            "executable_tool_count":executable,
+            "unavailable_tool_count":len(self.tools)-executable,
+            "coverage_notice":"Descriptor counts are not implementation coverage, financial validation or a satisfaction score.",
         }
 
     def agent(self, role: str) -> dict[str, Any]:
@@ -748,70 +803,72 @@ class ToolRegistry:
         return result
 
     def _execute(self, spec: ToolSpec, payload: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
-        query = payload.get("query") or context.get("query") or "sample desk request"
-        raw = {"tool": spec.name, "payload": payload, "context": context}
-        digest = hashlib.sha256(json.dumps(_redact(raw), sort_keys=True, default=str).encode()).hexdigest()[:12]
-        lower = spec.name.lower()
-        evidence = [
-            {"type": "tool_contract", "value": spec.name},
-            {"type": "version", "value": "tool-registry-v1"},
-            {"type": "hash", "value": digest},
-        ]
-        warnings: list[str] = []
-
-        if "hash" in lower or "freeze" in lower or "sign" in lower:
-            summary = f"{_title(spec.name)} produced immutable hash {digest}."
-            data = {"hash": digest, "frozen": True}
-        elif any(k in lower for k in ("price", "calc.", "compute_", "dv01", "cs01", "greeks", "var", "cvar")):
-            summary = f"{_title(spec.name)} returned deterministic analytics for {query}."
-            data = {
-                "value": 3.45,
-                "unit": "desk_units",
-                "formula": "closed_form_or_registered_adapter",
-                "model_version": "deterministic-local",
-            }
-            evidence.append({"type": "formula", "value": data["formula"]})
-        elif any(k in lower for k in ("load_", "market.", "provider", "download_", "snapshot", "dataset")):
-            summary = f"{_title(spec.name)} returned a timestamped data snapshot."
-            data = {
-                "source": "local_or_provider_adapter",
-                "timestamp": int(time.time()),
-                "quality": 0.92,
-                "stale": False,
-            }
-            evidence.append({"type": "data_quality", "value": data["quality"]})
-        elif any(k in lower for k in ("risk", "stress", "limit", "approve", "reject", "lockbox", "pbo", "sharpe", "fdr", "bonferroni")):
-            summary = f"{_title(spec.name)} produced an independent validation verdict."
-            data = {"verdict": "PASS_FOR_CONTRACT", "limit_usage": 0.55, "blocks_deployment": False}
-            evidence.append({"type": "risk_check", "value": data["verdict"]})
-        elif any(k in lower for k in ("report", "memo", "termsheet", "email", "export", "assemble", "note")):
-            summary = f"{_title(spec.name)} produced an audit-ready communication artifact."
-            data = {"format": "markdown", "sections": ["summary", "numbers", "risk", "limitations"]}
-            evidence.append({"type": "artifact_sections", "value": data["sections"]})
-        elif any(k in lower for k in ("compliance", "suitability", "eligibility", "advice")):
-            summary = f"{_title(spec.name)} completed compliance/suitability precheck."
-            data = {"client_type": "professional_or_educational", "advice_boundary": "information_not_advice", "approval_required": False}
-            evidence.append({"type": "compliance", "value": data["advice_boundary"]})
-        elif "handoff" in lower:
-            summary = f"{_title(spec.name)} handed off {spec.artifact} to the next gate."
-            data = {"handoff": True, "artifact": spec.artifact}
+        from .trusted_analytics import option_analysis, autocall_analysis, number
+        status=_implementation(spec.name)
+        if status=="unavailable":
+            return {"status":"unavailable","artifact":spec.artifact,"data":None,
+                    "summary":"This capability is registered but has no executable adapter.",
+                    "evidence":[],"warnings":["capability_not_implemented"],
+                    "implementation_status":status}
+        name=spec.name;leaf=name.split(".")[-1]
+        model="black76" if "black76" in leaf else "gk" if leaf in {"garman_kohlhagen","price_garman_kohlhagen","price_fx_option"} else "bsm"
+        if name.startswith("canonical."):
+            from .canonical_tools import run_canonical_tool
+            result=run_canonical_tool(name.split(".",1)[1],payload["input"],payload.get("format","json"))
+            data=result if isinstance(result,dict) else {"format":payload.get("format"),"content":result}
+        elif status=="calculated" and name not in {"risk.check_limits","book.limit_usage","calc.swap_pv_dv01","calc.cds_cs01"}:
+            if leaf in {"price_autocall","price_autocall_mc"}:
+                data=autocall_analysis(payload)
+            else:
+                data=option_analysis(payload,model=model)
+                if leaf.startswith("compute_") and leaf.removeprefix("compute_") in data["greeks"]:
+                    data={**data,"value":data["greeks"][leaf.removeprefix("compute_")],"metric":leaf.removeprefix("compute_"),
+                          "unit":data["conventions"].get(leaf.removeprefix("compute_"),"per underlying price unit")}
+        elif name in {"risk.check_limits","book.limit_usage"}:
+            loss=number(payload.get("loss"),"loss",-1e15,1e15)
+            limit=number(payload.get("limit"),"limit",1e-12,1e15)
+            usage=abs(loss)/limit
+            data={"loss":loss,"limit":limit,"limit_usage":usage,"verdict":"WITHIN_LIMIT" if usage<=1 else "BREACHED",
+                  "blocks_deployment":usage>1,"scope":"Comparison of supplied educational scenario loss and supplied limit, not a production risk approval."}
+        elif name in {"calc.swap_pv_dv01","calc.cds_cs01"}:
+            notional=number(payload.get("notional"),"notional",0,1e15)
+            annuity=number(payload.get("annuity"),"annuity",0,100)
+            dv01=notional*annuity*.0001
+            data={"value":dv01,"unit":"currency per basis point","inputs":{"notional":notional,"annuity":annuity},
+                  "formula":"notional * supplied annuity * 0.0001","metric":"CS01" if name.endswith("cs01") else "DV01",
+                  "limitations":["Supplied annuity approximation; this is not an independently bootstrapped curve or hazard calibration."]}
+            if name=="calc.swap_pv_dv01" and "parRate" in payload and "fixedRate" in payload:
+                data["payer_pv"]=notional*annuity*(number(payload["parRate"],"parRate",-1,1)-number(payload["fixedRate"],"fixedRate",-1,1))
+        elif name=="tool.list":data={"tools":self.list()}
+        elif name=="tool.describe":data=self.describe(payload["tool_name"])
+        elif name=="tool.healthcheck":data=self.healthcheck(payload["tool_name"])
+        elif name=="tool.validate_input":data=self.validate_input(payload["tool_name"],payload.get("payload"))
+        elif name=="tool.audit":data=self.audit(payload["tool_call_id"])
+        elif name=="tool.replay":data=self.replay(payload["tool_call_id"])
+        elif name.endswith("live_trading_guard"):
+            data={"live_execution_enabled":False,"blocked":True,"order_submitted":False,
+                  "reason":"No live broker execution adapter is configured by this tool. Confirmation records do not enable live trading.",
+                  "approval_recorded":bool(context.get("confirmed") or payload.get("confirmed"))}
+        elif leaf in {"capture_rfq","parse_intent"}:
+            from .desk import parse_request
+            data=parse_request(str(payload["query"]))
+            data["scope"]="Deterministic local intent parsing; explicit requested ticket fields are retained."
+        elif "hash" in name or name.endswith("snapshot_freeze"):
+            digest=hashlib.sha256(json.dumps(_redact(payload),sort_keys=True,default=str).encode()).hexdigest()
+            data={"hash":digest,"algorithm":"sha256","scope":"Content hash of supplied redacted payload; no external data retrieval, signature or market validation implied."}
         else:
-            summary = f"{_title(spec.name)} completed structured workflow step."
-            data = {"query": query, "artifact": spec.artifact, "normalized": True}
-
-        if spec.desk:
-            data["desk"] = spec.desk
-        return {
-            "status": "ok",
-            "artifact": spec.artifact,
-            "summary": summary,
-            "data": data,
-            "evidence": evidence,
-            "warnings": warnings,
-        }
+            # Render supplied evidence into a real communication artifact;
+            # never invent prices, sources or an external delivery event.
+            data={"format":"markdown","content":"# "+_title(name)+"\n\n"+json.dumps(_redact(payload),indent=2,ensure_ascii=False),
+                  "scope":"Report assembled from caller-supplied data; not externally sent or independently verified."}
+        return {"status":"ok","artifact":spec.artifact,"summary":"Executed "+name+" with explicit inputs.",
+                "data":data,"evidence":[{"type":"implementation","value":"tpl.trusted-analytics.v1"}],
+                "warnings":list(data.get("limitations",[])),"implementation_status":status}
 
 
 def _redact(value: Any) -> Any:
+    if isinstance(value,float) and not math.isfinite(value):
+        return "invalid_non_finite_number"
     if isinstance(value, dict):
         out = {}
         for key, item in value.items():

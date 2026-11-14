@@ -1,0 +1,6 @@
+{
+  "source": "WEBSITE/thepricinglab/src/lib/modelCalibration.mjs",
+  "engine_version": "1.0.0",
+  "sha256": "8173bd9ac0529385bc205ab830933139a64fc13769e5db024c90fa6c66e508d1",
+  "purpose": "Same canonical dependency-free calibration engine packaged for standalone backend/CLI; no frontend path at runtime."
+}

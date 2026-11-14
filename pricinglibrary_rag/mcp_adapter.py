@@ -370,6 +370,9 @@ class TplMcpAdapter:
     def _compact_tool(spec: dict[str, Any]) -> dict[str, Any]:
         return {
             "name": spec["name"],
+            "implementation_status":spec.get("implementation_status","unavailable"),
+            "executable":spec.get("executable",False),
+            "capability_notice":spec.get("capability_notice"),
             "owner_agent": spec["owner_agent"],
             "permission": spec["permission"],
             "category": spec["category"],

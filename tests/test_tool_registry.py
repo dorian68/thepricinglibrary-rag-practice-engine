@@ -6,7 +6,9 @@ def test_tool_registry_covers_all_agents():
     coverage = registry.coverage_report()
 
     assert coverage["agent_count"] == len(DESK_ROLES) + len(QUANT_RESEARCH_ROLES)
-    assert coverage["all_ok"]
+    assert coverage["all_descriptors_valid"]
+    assert not coverage["all_ok"]
+    assert 0 < coverage["executable_tool_count"] < coverage["tool_count"]
     assert coverage["tool_count"] >= 500
 
 

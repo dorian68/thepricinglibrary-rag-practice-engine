@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "1",
+  "notebooks": [
+    {
+      "id": "black-scholes-intro",
+      "title": "Black-Scholes call and spot scenarios",
+      "filename": "black-scholes-intro.ipynb",
+      "language": "en",
+      "description": "Reproduce a European call and compare five spot scenarios with one explicit ticket.",
+      "ticket": {
+        "spot": 100,
+        "strike": 100,
+        "rate": 0.02,
+        "dividend_yield": 0,
+        "volatility": 0.2,
+        "maturity_years": 0.5
+      },
+      "code": "\"\"\"Original TPL vanilla call lab. Flat continuous carry; no market data.\"\"\"\nimport json\nfrom math import exp, isfinite, log, sqrt\nfrom statistics import NormalDist\n\nTICKET = {\"spot\": 100.0, \"strike\": 100.0, \"rate\": 0.02, \"dividend_yield\": 0.0, \"volatility\": 0.20, \"maturity_years\": 0.5}\n\ndef call_price(spot, strike, rate, dividend_yield, volatility, maturity_years):\n    values = [spot, strike, rate, dividend_yield, volatility, maturity_years]\n    if not all(isfinite(float(x)) for x in values) or min(spot, strike, volatility, maturity_years) <= 0:\n        raise ValueError(\"Finite inputs and positive spot/strike/volatility/maturity required\")\n    root_t = sqrt(maturity_years)\n    d1 = (log(spot / strike) + (rate - dividend_yield + 0.5 * volatility ** 2) * maturity_years) / (volatility * root_t)\n    d2 = d1 - volatility * root_t\n    normal = NormalDist().cdf\n    return spot * exp(-dividend_yield * maturity_years) * normal(d1) - strike * exp(-rate * maturity_years) * normal(d2)\n\ndef run(ticket=None):\n    ticket = dict(TICKET if ticket is None else ticket)\n    return {\"schemaVersion\": \"1\", \"notebook_id\": \"black-scholes-intro\", \"ticket\": ticket,\n            \"model\": \"Black-Scholes-Merton European call\", \"price_per_unit\": call_price(**ticket),\n            \"scenarios\": [{\"spot\": spot, \"price_per_unit\": call_price(**{**ticket, \"spot\": spot})} for spot in [80, 90, 100, 110, 120]],\n            \"limits\": [\"Flat volatility and continuous rates/yield\", \"European exercise; educational calculation, not an executable quote\"]}\n\nif __name__ == \"__main__\":\n    print(json.dumps(run(), indent=2))\n",
+      "limitations": [
+        "Original educational case; hypothetical inputs, no market feed.",
+        "Flat volatility and continuous carry; European exercise."
+      ]
+    },
+    {
+      "id": "barrier-down-out",
+      "title": "Down-and-out call: closed form and Monte Carlo",
+      "filename": "barrier-down-out.ipynb",
+      "language": "en",
+      "description": "The Practice Challenge ticket, with a closed form and 100,000 antithetic conditional Brownian-bridge draws.",
+      "ticket": {
+        "spot": 100,
+        "strike": 100,
+        "barrier": 85,
+        "rate": 0.02,
+        "volatility": 0.2,
+        "maturity_years": 0.5,
+        "paths": 100000,
+        "seed": 7
+      },
+      "code": "\"\"\"Original TPL continuously monitored down-and-out call lab, zero rebate.\nClosed form for H <= K, GBM; conditional Brownian-bridge MC with antithetic normals.\n100,000 terminal draws = 50,000 independent antithetic pairs. No discrete-time bias.\n\"\"\"\nimport json\nimport random\nfrom math import exp, isfinite, log, sqrt\nfrom statistics import NormalDist, mean, variance\n\nTICKET = {\"spot\": 100.0, \"strike\": 100.0, \"barrier\": 85.0, \"rate\": 0.02, \"volatility\": 0.20, \"maturity_years\": 0.5, \"paths\": 100000, \"seed\": 7}\n\ndef vanilla_call(spot, strike, rate, volatility, maturity_years):\n    root_variance = volatility * sqrt(maturity_years)\n    d1 = (log(spot / strike) + (rate + 0.5 * volatility ** 2) * maturity_years) / root_variance\n    normal = NormalDist().cdf\n    return spot * normal(d1) - strike * exp(-rate * maturity_years) * normal(d1 - root_variance)\n\ndef run(ticket=None):\n    ticket = dict(TICKET if ticket is None else ticket)\n    S, K, H, r, sigma, T = [float(ticket[k]) for k in [\"spot\", \"strike\", \"barrier\", \"rate\", \"volatility\", \"maturity_years\"]]\n    paths, seed = ticket[\"paths\"], ticket[\"seed\"]\n    if not all(isfinite(x) for x in [S, K, H, r, sigma, T]) or not (0 < H <= K and H < S and 0 < sigma <= 3 and 0 < T <= 30 and abs(r) <= 0.5):\n        raise ValueError(\"Supported ticket: 0 < H <= K, H < S, 0 < sigma <= 3, 0 < T <= 30 and abs(r) <= 0.5; zero dividends/rebate\")\n    if isinstance(paths, bool) or not isinstance(paths, int) or paths < 2 or paths > 200000 or paths % 2 or isinstance(seed, bool) or not isinstance(seed, int):\n        raise ValueError(\"paths must be an even integer in [2, 200000]; seed must be an integer\")\n    vanilla = vanilla_call(S, K, r, sigma, T)\n    mu = (r - 0.5 * sigma ** 2) / sigma ** 2\n    down_in = (H / S) ** (2 * mu) * vanilla_call(H * H / S, K, r, sigma, T)\n    analytic = vanilla - down_in\n    rng = random.Random(seed)\n    discount = exp(-r * T)\n    root_variance = sigma * sqrt(T)\n    log_start = log(S / H)\n    def discounted_bridge_payoff(z):\n        terminal = S * exp((r - 0.5 * sigma ** 2) * T + root_variance * z)\n        if terminal <= H:\n            return 0.0\n        survival_probability = 1.0 - exp(-2.0 * log_start * log(terminal / H) / (sigma ** 2 * T))\n        return discount * max(terminal - K, 0.0) * survival_probability\n    # Pair means are the independent observations for the MC standard error.\n    pairs = []\n    for _ in range(paths // 2):\n        z = rng.gauss(0.0, 1.0)\n        pairs.append(0.5 * (discounted_bridge_payoff(z) + discounted_bridge_payoff(-z)))\n    estimate = mean(pairs)\n    standard_error = sqrt(variance(pairs) / len(pairs)) if len(pairs) > 1 else None\n    ci95 = [estimate - 1.96 * standard_error, estimate + 1.96 * standard_error] if standard_error is not None else None\n    return {\"schemaVersion\": \"1\", \"notebook_id\": \"barrier-down-out\", \"ticket\": ticket,\n            \"model\": \"GBM continuous down-and-out call, zero rebate; H <= K\", \"closed_form_price\": analytic,\n            \"vanilla_price\": vanilla, \"down_in_price\": down_in, \"mc_price\": estimate,\n            \"standard_error\": standard_error, \"ci95\": ci95, \"independent_pairs\": len(pairs),\n            \"method\": \"Conditional Brownian-bridge survival weighting with antithetic terminal normals\",\n            \"limits\": [\"Non-dividend GBM, flat rate/volatility, continuous monitoring, zero rebate\", \"CI describes sampling error only, not model risk\", \"No path discretisation: this conditional estimator is not a generic path-dependent engine\"]}\n\nif __name__ == \"__main__\":\n    print(json.dumps(run(), indent=2))\n",
+      "limitations": [
+        "Zero dividends and rebate; continuous GBM barrier, H <= K and H < S.",
+        "Standard error uses independent antithetic-pair means, not correlated individual draws.",
+        "The 95% interval concerns sampling error, not model risk or an employment assessment."
+      ]
+    }
+  ]
+}

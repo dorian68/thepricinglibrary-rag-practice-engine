@@ -1,0 +1,409 @@
+{
+  "bs-pricer": {
+    "schemaVersion": "tpl.black-scholes.input.v1",
+    "quoteMode": "volatility",
+    "optionType": "call",
+    "spot": 100,
+    "strike": 100,
+    "maturityYears": 1,
+    "dayCount": "ACT/365F",
+    "riskFreeRate": 0.05,
+    "dividendYield": 0,
+    "volatility": 0.2,
+    "marketPrice": null,
+    "currency": "USD",
+    "position": "long",
+    "quantity": 1,
+    "multiplier": 1,
+    "shocks": {
+      "spotPct": 10,
+      "volPoints": 5,
+      "days": 30
+    }
+  },
+  "binomial": {
+    "schemaVersion": "tpl.binomial.input.v1",
+    "spot": 100,
+    "strike": 100,
+    "volatility": 0.2,
+    "maturityYears": 1,
+    "dayCount": "ACT/365F",
+    "riskFreeRate": 0.05,
+    "dividendYield": 0,
+    "steps": 100,
+    "optionType": "call",
+    "exerciseStyle": "european",
+    "currency": "USD",
+    "quantity": 1,
+    "contractMultiplier": 1,
+    "position": "long"
+  },
+  "bond": {
+    "schemaVersion": "tpl.bond.input.v1",
+    "settlementDate": "2026-07-31",
+    "maturityDate": "2036-07-31",
+    "dayCount": "ACT/ACT ICMA",
+    "couponRate": 0.05,
+    "couponFrequency": 2,
+    "quoteMode": "yield",
+    "yieldToMaturity": 0.05,
+    "cleanPrice": null,
+    "currency": "EUR",
+    "notional": 1000000,
+    "position": "long",
+    "shockBp": 25
+  },
+  "mc": {
+    "schemaVersion": "tpl.monte-carlo.input.v1",
+    "mode": "pricing_risk_neutral",
+    "spot": 100,
+    "volatility": 0.2,
+    "maturityYears": 1,
+    "dayCount": "ACT/365F",
+    "paths": 1000,
+    "timeSteps": 1,
+    "seed": 42,
+    "method": "antithetic",
+    "samplePaths": 5,
+    "histogramBins": 10,
+    "currency": "EUR",
+    "quantity": 1,
+    "contractMultiplier": 1,
+    "position": "long",
+    "riskFreeRate": 0.05,
+    "dividendYield": 0,
+    "strike": 100,
+    "optionType": "call",
+    "payoffType": "european"
+  },
+  "payoff": {
+    "spot": 100,
+    "volatility": 0.2,
+    "timeToMaturity": 1,
+    "riskFreeRate": 0,
+    "dividendYield": 0,
+    "currency": "USD",
+    "contractMultiplier": 1,
+    "gridPoints": 401,
+    "legs": [
+      {
+        "id": "call-200",
+        "type": "call",
+        "side": "long",
+        "strike": 200,
+        "quantity": 1,
+        "premiumSource": "manual",
+        "manualPremium": 5
+      }
+    ]
+  },
+  "iv-calc": {
+    "rows": [
+      {
+        "date": "2024-01-02",
+        "open": 100,
+        "high": 100,
+        "low": 100,
+        "close": 100
+      },
+      {
+        "date": "2024-01-03",
+        "open": 100,
+        "high": 100,
+        "low": 100,
+        "close": 100
+      },
+      {
+        "date": "2024-01-04",
+        "open": 100,
+        "high": 100,
+        "low": 100,
+        "close": 100
+      },
+      {
+        "date": "2024-01-05",
+        "open": 100,
+        "high": 100,
+        "low": 100,
+        "close": 100
+      },
+      {
+        "date": "2024-01-08",
+        "open": 100,
+        "high": 100,
+        "low": 100,
+        "close": 100
+      },
+      {
+        "date": "2024-01-09",
+        "open": 100,
+        "high": 100,
+        "low": 100,
+        "close": 100
+      }
+    ],
+    "config": {
+      "window": 5,
+      "annualization": 252,
+      "calendarMode": "weekday_sessions",
+      "priceBasis": "split_adjusted_ohlc",
+      "sourceLabel": "deterministic teaching fixture",
+      "symbolLabel": "FIXTURE"
+    }
+  },
+  "curve": {
+    "instruments": [
+      {
+        "type": "deposit",
+        "maturity": 0.5,
+        "quote": 0.05
+      },
+      {
+        "type": "fra",
+        "start": 0.5,
+        "maturity": 1.0,
+        "quote": 0.0525
+      }
+    ],
+    "conventions": {
+      "fixedLegFrequency": 1,
+      "interpolation": "log-linear discount factors",
+      "extrapolation": "forbidden"
+    }
+  },
+  "volsurface": {
+    "schemaVersion": "tpl.vol-surface.input.v1",
+    "surfaceName": "Synthetic CLI teaching surface",
+    "asOfDate": "2026-11-14",
+    "sourceKind": "deterministic_fixture",
+    "interpolationMode": "total_variance_bilinear",
+    "selectedMaturity": 0.5,
+    "selectedLogMoneyness": 0,
+    "quotes": [
+      {
+        "maturity": 0.25,
+        "forward": 100.5012520859401,
+        "discountFactor": 0.9925280548191384,
+        "logMoneyness": -0.3,
+        "impliedVolatility": 0.2292314355131421,
+        "bidVolatility": 0.2242314355131421,
+        "askVolatility": 0.2342314355131421
+      },
+      {
+        "maturity": 0.25,
+        "forward": 100.5012520859401,
+        "discountFactor": 0.9925280548191384,
+        "logMoneyness": -0.15,
+        "impliedVolatility": 0.2134814355131421,
+        "bidVolatility": 0.2084814355131421,
+        "askVolatility": 0.2184814355131421
+      },
+      {
+        "maturity": 0.25,
+        "forward": 100.5012520859401,
+        "discountFactor": 0.9925280548191384,
+        "logMoneyness": 0.0,
+        "impliedVolatility": 0.2022314355131421,
+        "bidVolatility": 0.1972314355131421,
+        "askVolatility": 0.2072314355131421
+      },
+      {
+        "maturity": 0.25,
+        "forward": 100.5012520859401,
+        "discountFactor": 0.9925280548191384,
+        "logMoneyness": 0.15,
+        "impliedVolatility": 0.1954814355131421,
+        "bidVolatility": 0.1904814355131421,
+        "askVolatility": 0.2004814355131421
+      },
+      {
+        "maturity": 0.25,
+        "forward": 100.5012520859401,
+        "discountFactor": 0.9925280548191384,
+        "logMoneyness": 0.3,
+        "impliedVolatility": 0.19323143551314212,
+        "bidVolatility": 0.18823143551314211,
+        "askVolatility": 0.19823143551314212
+      },
+      {
+        "maturity": 0.5,
+        "forward": 101.00501670841679,
+        "discountFactor": 0.9851119396030626,
+        "logMoneyness": -0.3,
+        "impliedVolatility": 0.23105465108108164,
+        "bidVolatility": 0.22605465108108164,
+        "askVolatility": 0.23605465108108165
+      },
+      {
+        "maturity": 0.5,
+        "forward": 101.00501670841679,
+        "discountFactor": 0.9851119396030626,
+        "logMoneyness": -0.15,
+        "impliedVolatility": 0.21530465108108165,
+        "bidVolatility": 0.21030465108108165,
+        "askVolatility": 0.22030465108108166
+      },
+      {
+        "maturity": 0.5,
+        "forward": 101.00501670841679,
+        "discountFactor": 0.9851119396030626,
+        "logMoneyness": 0.0,
+        "impliedVolatility": 0.20405465108108164,
+        "bidVolatility": 0.19905465108108164,
+        "askVolatility": 0.20905465108108165
+      },
+      {
+        "maturity": 0.5,
+        "forward": 101.00501670841679,
+        "discountFactor": 0.9851119396030626,
+        "logMoneyness": 0.15,
+        "impliedVolatility": 0.19730465108108164,
+        "bidVolatility": 0.19230465108108163,
+        "askVolatility": 0.20230465108108164
+      },
+      {
+        "maturity": 0.5,
+        "forward": 101.00501670841679,
+        "discountFactor": 0.9851119396030626,
+        "logMoneyness": 0.3,
+        "impliedVolatility": 0.19505465108108166,
+        "bidVolatility": 0.19005465108108166,
+        "askVolatility": 0.20005465108108167
+      },
+      {
+        "maturity": 1.0,
+        "forward": 102.02013400267558,
+        "discountFactor": 0.9704455335485082,
+        "logMoneyness": -0.3,
+        "impliedVolatility": 0.23393147180559945,
+        "bidVolatility": 0.22893147180559945,
+        "askVolatility": 0.23893147180559945
+      },
+      {
+        "maturity": 1.0,
+        "forward": 102.02013400267558,
+        "discountFactor": 0.9704455335485082,
+        "logMoneyness": -0.15,
+        "impliedVolatility": 0.21818147180559946,
+        "bidVolatility": 0.21318147180559946,
+        "askVolatility": 0.22318147180559947
+      },
+      {
+        "maturity": 1.0,
+        "forward": 102.02013400267558,
+        "discountFactor": 0.9704455335485082,
+        "logMoneyness": 0.0,
+        "impliedVolatility": 0.20693147180559945,
+        "bidVolatility": 0.20193147180559945,
+        "askVolatility": 0.21193147180559946
+      },
+      {
+        "maturity": 1.0,
+        "forward": 102.02013400267558,
+        "discountFactor": 0.9704455335485082,
+        "logMoneyness": 0.15,
+        "impliedVolatility": 0.20018147180559945,
+        "bidVolatility": 0.19518147180559944,
+        "askVolatility": 0.20518147180559945
+      },
+      {
+        "maturity": 1.0,
+        "forward": 102.02013400267558,
+        "discountFactor": 0.9704455335485082,
+        "logMoneyness": 0.3,
+        "impliedVolatility": 0.19793147180559947,
+        "bidVolatility": 0.19293147180559947,
+        "askVolatility": 0.20293147180559948
+      },
+      {
+        "maturity": 2.0,
+        "forward": 104.08107741923882,
+        "discountFactor": 0.9417645335842487,
+        "logMoneyness": -0.3,
+        "impliedVolatility": 0.2379861228866811,
+        "bidVolatility": 0.2329861228866811,
+        "askVolatility": 0.24298612288668112
+      },
+      {
+        "maturity": 2.0,
+        "forward": 104.08107741923882,
+        "discountFactor": 0.9417645335842487,
+        "logMoneyness": -0.15,
+        "impliedVolatility": 0.22223612288668113,
+        "bidVolatility": 0.21723612288668112,
+        "askVolatility": 0.22723612288668113
+      },
+      {
+        "maturity": 2.0,
+        "forward": 104.08107741923882,
+        "discountFactor": 0.9417645335842487,
+        "logMoneyness": 0.0,
+        "impliedVolatility": 0.21098612288668112,
+        "bidVolatility": 0.2059861228866811,
+        "askVolatility": 0.21598612288668112
+      },
+      {
+        "maturity": 2.0,
+        "forward": 104.08107741923882,
+        "discountFactor": 0.9417645335842487,
+        "logMoneyness": 0.15,
+        "impliedVolatility": 0.2042361228866811,
+        "bidVolatility": 0.1992361228866811,
+        "askVolatility": 0.20923612288668111
+      },
+      {
+        "maturity": 2.0,
+        "forward": 104.08107741923882,
+        "discountFactor": 0.9417645335842487,
+        "logMoneyness": 0.3,
+        "impliedVolatility": 0.20198612288668114,
+        "bidVolatility": 0.19698612288668113,
+        "askVolatility": 0.20698612288668114
+      }
+    ]
+  },
+  "calib": {
+    "model": "black",
+    "surface": [
+      {
+        "strike": 80,
+        "forward": 100,
+        "maturity": 1,
+        "impliedVol": 0.2,
+        "weight": 1
+      },
+      {
+        "strike": 90,
+        "forward": 100,
+        "maturity": 1,
+        "impliedVol": 0.2,
+        "weight": 1
+      },
+      {
+        "strike": 100,
+        "forward": 100,
+        "maturity": 1,
+        "impliedVol": 0.2,
+        "weight": 1
+      },
+      {
+        "strike": 110,
+        "forward": 100,
+        "maturity": 1,
+        "impliedVol": 0.2,
+        "weight": 1
+      },
+      {
+        "strike": 120,
+        "forward": 100,
+        "maturity": 1,
+        "impliedVol": 0.2,
+        "weight": 1
+      }
+    ],
+    "options": {
+      "objective": "volatility",
+      "maxIterations": 100
+    }
+  }
+}

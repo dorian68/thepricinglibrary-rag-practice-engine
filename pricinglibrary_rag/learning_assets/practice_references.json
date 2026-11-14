@@ -1,0 +1,1062 @@
+{
+  "schema_version": "tpl.practice-reference.v1",
+  "references": [
+    {
+      "schema_version": "tpl.practice-reference.v1",
+      "id": "realized-vol-estimators",
+      "ticket": {
+        "rows": [
+          {
+            "date": "2024-01-02",
+            "open": 100,
+            "high": 101.4,
+            "low": 99.35,
+            "close": 100.9
+          },
+          {
+            "date": "2024-01-03",
+            "open": 101.05,
+            "high": 102.1,
+            "low": 100.2,
+            "close": 101.55
+          },
+          {
+            "date": "2024-01-04",
+            "open": 101.4,
+            "high": 102,
+            "low": 99.8,
+            "close": 100.15
+          },
+          {
+            "date": "2024-01-05",
+            "open": 100.25,
+            "high": 101.65,
+            "low": 99.9,
+            "close": 101.2
+          },
+          {
+            "date": "2024-01-08",
+            "open": 101.45,
+            "high": 102.8,
+            "low": 100.95,
+            "close": 102.35
+          },
+          {
+            "date": "2024-01-09",
+            "open": 102.2,
+            "high": 103.1,
+            "low": 101.2,
+            "close": 101.75
+          },
+          {
+            "date": "2024-01-10",
+            "open": 101.6,
+            "high": 102.45,
+            "low": 100.7,
+            "close": 101.1
+          },
+          {
+            "date": "2024-01-11",
+            "open": 101.35,
+            "high": 103,
+            "low": 101.05,
+            "close": 102.7
+          },
+          {
+            "date": "2024-01-12",
+            "open": 102.55,
+            "high": 103.25,
+            "low": 101.7,
+            "close": 102.05
+          },
+          {
+            "date": "2024-01-15",
+            "open": 102.2,
+            "high": 103.6,
+            "low": 101.85,
+            "close": 103.1
+          },
+          {
+            "date": "2024-01-16",
+            "open": 103,
+            "high": 104.1,
+            "low": 102.35,
+            "close": 103.75
+          },
+          {
+            "date": "2024-01-17",
+            "open": 103.9,
+            "high": 104.45,
+            "low": 102.7,
+            "close": 103.05
+          }
+        ],
+        "annualization": 252
+      },
+      "result": {
+        "row_count": 12,
+        "common_sessions": 11,
+        "annualization": 252,
+        "yang_zhang_weight": 0.13385826771653545,
+        "daily_variance": {
+          "closeToClose": 9.826149884866024e-05,
+          "parkinson": 0.00011671898480957361,
+          "garmanKlass": 0.00013424054237993598,
+          "rogersSatchell": 0.0001294046749454577,
+          "yangZhang": 0.00012502552501604617
+        },
+        "annualized_volatility_decimal": {
+          "closeToClose": 0.15735913608641344,
+          "parkinson": 0.17150272351193888,
+          "garmanKlass": 0.1839255737512972,
+          "rogersSatchell": 0.1805823304929232,
+          "yangZhang": 0.17750051353177443
+        },
+        "annualized_volatility_365": {
+          "closeToClose": 0.18938174959525797,
+          "parkinson": 0.20640355969676097,
+          "garmanKlass": 0.2213544622741467,
+          "rogersSatchell": 0.21733086838986324,
+          "yangZhang": 0.21362190110299284
+        },
+        "annualization_ratio_365_over_252": 1.2035001862952488
+      },
+      "checks": {
+        "valid_ohlc": true,
+        "common_sessions_11": true,
+        "daily_variances_nonnegative": true,
+        "annualization_changes_only_scale": true
+      },
+      "conventions": [
+        "All estimators use the same 11 sessions; first row anchors previous close.",
+        "Close-to-close/overnight/open-close sample variance uses n-1; range contributions use mean over n.",
+        "Volatility is annualized decimal; rates are not implied market quotes."
+      ],
+      "limitations": [
+        "Original synthetic unadjusted OHLC; weekday labels are not an exchange trading calendar.",
+        "Estimator assumptions differ; no corporate-action adjustment or prediction is implied."
+      ],
+      "assumptions": [],
+      "execution_mode": "authored_fixed_reference; no learner code executed",
+      "solution": "# Standalone authored TPL practice reference. No learner code is executed by the service.\nfrom __future__ import annotations\nimport json\nimport math\nimport statistics\n\ndef _number(value, label, low, high):\n    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:\n        raise ValueError(f'{label} must be a finite number in [{low}, {high}].')\n    return float(value)\n\ndef _cdf(x):\n    return .5 * (1 + math.erf(x / math.sqrt(2)))\n\ndef _bsm(spot, strike, rate, vol, maturity, dividend=0):\n    s=_number(spot,'spot',1e-9,1e9);k=_number(strike,'strike',1e-9,1e9)\n    t=_number(maturity,'maturity',1e-9,30);v=_number(vol,'volatility',1e-9,5)\n    r=_number(rate,'rate',-1,1);q=_number(dividend,'dividend',-1,1)\n    d1=(math.log(s/k)+(r-q+v*v/2)*t)/(v*math.sqrt(t));d2=d1-v*math.sqrt(t)\n    call=s*math.exp(-q*t)*_cdf(d1)-k*math.exp(-r*t)*_cdf(d2)\n    put=k*math.exp(-r*t)*_cdf(-d2)-s*math.exp(-q*t)*_cdf(-d1)\n    phi=math.exp(-d1*d1/2)/math.sqrt(2*math.pi)\n    return {'call':call,'put':put,'d1':d1,'d2':d2,\n            'delta':math.exp(-q*t)*_cdf(d1),'vega_per_unit_vol':s*math.exp(-q*t)*phi*math.sqrt(t)}\n\ndef _newton_iv(target, spot, strike, rate, maturity, guess=.2, tolerance=1e-10, max_iterations=20):\n    target=_number(target,'market price',0,1e9)\n    lower=max(0,spot-strike*math.exp(-rate*maturity));upper=spot\n    if not lower < target < upper:raise ValueError('Target is outside the strict European call price bounds.')\n    lo,hi=1e-8,5.0;sigma=_number(guess,'initial guess',lo,hi);trace=[];fallbacks=0\n    for index in range(max_iterations):\n        value=_bsm(spot,strike,rate,sigma,maturity);error=value['call']-target\n        trace.append({'evaluation':index+1,'sigma':sigma,'call_price':value['call'],'price_error':error,\n                      'vega_per_unit_vol':value['vega_per_unit_vol']})\n        if abs(error)<=tolerance:\n            return {'volatility':sigma,'converged':True,'price_evaluations':len(trace),'newton_updates':len(trace)-1,\n                    'price_error':error,'repriced_call':value['call'],'fallback_steps':fallbacks,'trace':trace}\n        if error>0:hi=sigma\n        else:lo=sigma\n        candidate=sigma-error/value['vega_per_unit_vol'] if value['vega_per_unit_vol']>1e-12 else float('nan')\n        if not math.isfinite(candidate) or not lo<candidate<hi:\n            candidate=(lo+hi)/2;fallbacks+=1\n        sigma=candidate\n    raise ValueError('Implied volatility did not converge within the bounded iteration budget.')\n\ndef _barrier_cashflow(spot,strike,barrier,notional,previously_touched=False):\n    knocked_out=previously_touched or spot<=barrier\n    return knocked_out,0.0 if knocked_out else max(spot-strike,0)*notional\n\ndef _solve_realized(t):\n    rows=t['rows'];sessions=list(zip(rows,rows[1:]));n=len(sessions)\n    close=[math.log(row['close']/previous['close']) for previous,row in sessions]\n    overnight=[math.log(row['open']/previous['close']) for previous,row in sessions]\n    oc=[math.log(row['close']/row['open']) for _,row in sessions]\n    hl=[math.log(row['high']/row['low']) for _,row in sessions]\n    rs=statistics.mean(math.log(row['high']/row['open'])*math.log(row['high']/row['close'])+\n                       math.log(row['low']/row['open'])*math.log(row['low']/row['close']) for _,row in sessions)\n    weight=.34/(1.34+(n+1)/(n-1))\n    variances={'closeToClose':statistics.variance(close),'parkinson':statistics.mean(h*h for h in hl)/(4*math.log(2)),\n               'garmanKlass':statistics.mean(.5*h*h-(2*math.log(2)-1)*c*c for h,c in zip(hl,oc)),\n               'rogersSatchell':rs,'yangZhang':statistics.variance(overnight)+weight*statistics.variance(oc)+(1-weight)*rs}\n    annualized={name:math.sqrt(t['annualization']*value) for name,value in variances.items()}\n    annualized365={name:math.sqrt(365*value) for name,value in variances.items()}\n    valid=all(row['high']>=max(row['open'],row['close']) and row['low']<=min(row['open'],row['close']) and row['low']>0 for row in rows)\n    return {'row_count':len(rows),'common_sessions':n,'annualization':t['annualization'],'yang_zhang_weight':weight,\n            'daily_variance':variances,'annualized_volatility_decimal':annualized,'annualized_volatility_365':annualized365,\n            'annualization_ratio_365_over_252':math.sqrt(365/t['annualization']),\n            'checks':{'valid_ohlc':valid,'common_sessions_11':n==11,'daily_variances_nonnegative':all(v>=0 for v in variances.values()),\n                      'annualization_changes_only_scale':all(math.isclose(annualized365[k]/annualized[k],math.sqrt(365/t['annualization']),rel_tol=1e-12) for k in variances)}}\n\ndef _pack_reference(exercise_id,ticket,result,conventions,limitations,assumptions):\n    result=dict(result);checks=result.pop('checks')\n    return {'schema_version':'tpl.practice-reference.v1','id':exercise_id,'ticket':ticket,'result':result,\n            'checks':checks,'conventions':conventions,'limitations':limitations,'assumptions':assumptions,\n            'execution_mode':'authored_fixed_reference; no learner code executed'}\n\nREFERENCE_ID = json.loads('\"realized-vol-estimators\"')\nTICKET = json.loads('{\"rows\": [{\"date\": \"2024-01-02\", \"open\": 100, \"high\": 101.4, \"low\": 99.35, \"close\": 100.9}, {\"date\": \"2024-01-03\", \"open\": 101.05, \"high\": 102.1, \"low\": 100.2, \"close\": 101.55}, {\"date\": \"2024-01-04\", \"open\": 101.4, \"high\": 102, \"low\": 99.8, \"close\": 100.15}, {\"date\": \"2024-01-05\", \"open\": 100.25, \"high\": 101.65, \"low\": 99.9, \"close\": 101.2}, {\"date\": \"2024-01-08\", \"open\": 101.45, \"high\": 102.8, \"low\": 100.95, \"close\": 102.35}, {\"date\": \"2024-01-09\", \"open\": 102.2, \"high\": 103.1, \"low\": 101.2, \"close\": 101.75}, {\"date\": \"2024-01-10\", \"open\": 101.6, \"high\": 102.45, \"low\": 100.7, \"close\": 101.1}, {\"date\": \"2024-01-11\", \"open\": 101.35, \"high\": 103, \"low\": 101.05, \"close\": 102.7}, {\"date\": \"2024-01-12\", \"open\": 102.55, \"high\": 103.25, \"low\": 101.7, \"close\": 102.05}, {\"date\": \"2024-01-15\", \"open\": 102.2, \"high\": 103.6, \"low\": 101.85, \"close\": 103.1}, {\"date\": \"2024-01-16\", \"open\": 103, \"high\": 104.1, \"low\": 102.35, \"close\": 103.75}, {\"date\": \"2024-01-17\", \"open\": 103.9, \"high\": 104.45, \"low\": 102.7, \"close\": 103.05}], \"annualization\": 252}')\nCONVENTIONS = json.loads('[\"All estimators use the same 11 sessions; first row anchors previous close.\", \"Close-to-close/overnight/open-close sample variance uses n-1; range contributions use mean over n.\", \"Volatility is annualized decimal; rates are not implied market quotes.\"]')\nLIMITATIONS = json.loads('[\"Original synthetic unadjusted OHLC; weekday labels are not an exchange trading calendar.\", \"Estimator assumptions differ; no corporate-action adjustment or prediction is implied.\"]')\nASSUMPTIONS = json.loads('[]')\n\nif __name__ == \"__main__\":\n    result = _pack_reference(REFERENCE_ID, TICKET, _solve_realized(TICKET), CONVENTIONS, LIMITATIONS, ASSUMPTIONS)\n    print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))\n",
+      "output": "{\n  \"assumptions\": [],\n  \"checks\": {\n    \"annualization_changes_only_scale\": true,\n    \"common_sessions_11\": true,\n    \"daily_variances_nonnegative\": true,\n    \"valid_ohlc\": true\n  },\n  \"conventions\": [\n    \"All estimators use the same 11 sessions; first row anchors previous close.\",\n    \"Close-to-close/overnight/open-close sample variance uses n-1; range contributions use mean over n.\",\n    \"Volatility is annualized decimal; rates are not implied market quotes.\"\n  ],\n  \"execution_mode\": \"authored_fixed_reference; no learner code executed\",\n  \"id\": \"realized-vol-estimators\",\n  \"limitations\": [\n    \"Original synthetic unadjusted OHLC; weekday labels are not an exchange trading calendar.\",\n    \"Estimator assumptions differ; no corporate-action adjustment or prediction is implied.\"\n  ],\n  \"result\": {\n    \"annualization\": 252,\n    \"annualization_ratio_365_over_252\": 1.2035001862952488,\n    \"annualized_volatility_365\": {\n      \"closeToClose\": 0.18938174959525797,\n      \"garmanKlass\": 0.2213544622741467,\n      \"parkinson\": 0.20640355969676097,\n      \"rogersSatchell\": 0.21733086838986324,\n      \"yangZhang\": 0.21362190110299284\n    },\n    \"annualized_volatility_decimal\": {\n      \"closeToClose\": 0.15735913608641344,\n      \"garmanKlass\": 0.1839255737512972,\n      \"parkinson\": 0.17150272351193888,\n      \"rogersSatchell\": 0.1805823304929232,\n      \"yangZhang\": 0.17750051353177443\n    },\n    \"common_sessions\": 11,\n    \"daily_variance\": {\n      \"closeToClose\": 9.826149884866024e-05,\n      \"garmanKlass\": 0.00013424054237993598,\n      \"parkinson\": 0.00011671898480957361,\n      \"rogersSatchell\": 0.0001294046749454577,\n      \"yangZhang\": 0.00012502552501604617\n    },\n    \"row_count\": 12,\n    \"yang_zhang_weight\": 0.13385826771653545\n  },\n  \"schema_version\": \"tpl.practice-reference.v1\",\n  \"ticket\": {\n    \"annualization\": 252,\n    \"rows\": [\n      {\n        \"close\": 100.9,\n        \"date\": \"2024-01-02\",\n        \"high\": 101.4,\n        \"low\": 99.35,\n        \"open\": 100\n      },\n      {\n        \"close\": 101.55,\n        \"date\": \"2024-01-03\",\n        \"high\": 102.1,\n        \"low\": 100.2,\n        \"open\": 101.05\n      },\n      {\n        \"close\": 100.15,\n        \"date\": \"2024-01-04\",\n        \"high\": 102,\n        \"low\": 99.8,\n        \"open\": 101.4\n      },\n      {\n        \"close\": 101.2,\n        \"date\": \"2024-01-05\",\n        \"high\": 101.65,\n        \"low\": 99.9,\n        \"open\": 100.25\n      },\n      {\n        \"close\": 102.35,\n        \"date\": \"2024-01-08\",\n        \"high\": 102.8,\n        \"low\": 100.95,\n        \"open\": 101.45\n      },\n      {\n        \"close\": 101.75,\n        \"date\": \"2024-01-09\",\n        \"high\": 103.1,\n        \"low\": 101.2,\n        \"open\": 102.2\n      },\n      {\n        \"close\": 101.1,\n        \"date\": \"2024-01-10\",\n        \"high\": 102.45,\n        \"low\": 100.7,\n        \"open\": 101.6\n      },\n      {\n        \"close\": 102.7,\n        \"date\": \"2024-01-11\",\n        \"high\": 103,\n        \"low\": 101.05,\n        \"open\": 101.35\n      },\n      {\n        \"close\": 102.05,\n        \"date\": \"2024-01-12\",\n        \"high\": 103.25,\n        \"low\": 101.7,\n        \"open\": 102.55\n      },\n      {\n        \"close\": 103.1,\n        \"date\": \"2024-01-15\",\n        \"high\": 103.6,\n        \"low\": 101.85,\n        \"open\": 102.2\n      },\n      {\n        \"close\": 103.75,\n        \"date\": \"2024-01-16\",\n        \"high\": 104.1,\n        \"low\": 102.35,\n        \"open\": 103\n      },\n      {\n        \"close\": 103.05,\n        \"date\": \"2024-01-17\",\n        \"high\": 104.45,\n        \"low\": 102.7,\n        \"open\": 103.9\n      }\n    ]\n  }\n}",
+      "dependencies": [],
+      "python_version": ">=3.10",
+      "output_format": "JSON actually produced by the standalone Python reference",
+      "assessment_notice": "A computed reference and self-review aid; no expert reasoning grade or hiring certification."
+    },
+    {
+      "schema_version": "tpl.practice-reference.v1",
+      "id": "bs-eur-call",
+      "ticket": {
+        "spot": 100,
+        "strike": 100,
+        "rate": 0.02,
+        "volatility": 0.2,
+        "maturity_years": 0.5,
+        "dividend_yield": 0
+      },
+      "result": {
+        "call": 6.120654113455842,
+        "put": 5.1256374883726465,
+        "d1": 0.1414213562373095,
+        "d2": -2.7755575615628914e-17,
+        "delta": 0.5562314580091424,
+        "vega_per_unit_vol": 27.928790169723428,
+        "vega_per_vol_point": 0.2792879016972343,
+        "parity_lhs": 0.9950166250831955,
+        "parity_rhs": 0.9950166250831955,
+        "parity_gap": 0.0,
+        "price_unit": "currency per underlying unit"
+      },
+      "checks": {
+        "parity_holds": true,
+        "positive_vega": true,
+        "call_delta_above_half": true
+      },
+      "conventions": [
+        "Continuous annual rate and dividend yield; volatility is annualized decimal.",
+        "European exercise; 6 months represented as 0.5 years.",
+        "Delta per underlying unit; vega per unit volatility and per 1 percentage point are distinguished."
+      ],
+      "limitations": [
+        "Constant volatility and deterministic carry; no bid/ask, early exercise, transaction costs or live price."
+      ],
+      "assumptions": [
+        "Dividend yield is assumed zero because the brief does not supply it."
+      ],
+      "execution_mode": "authored_fixed_reference; no learner code executed",
+      "solution": "# Standalone authored TPL practice reference. No learner code is executed by the service.\nfrom __future__ import annotations\nimport json\nimport math\nimport statistics\n\ndef _number(value, label, low, high):\n    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:\n        raise ValueError(f'{label} must be a finite number in [{low}, {high}].')\n    return float(value)\n\ndef _cdf(x):\n    return .5 * (1 + math.erf(x / math.sqrt(2)))\n\ndef _bsm(spot, strike, rate, vol, maturity, dividend=0):\n    s=_number(spot,'spot',1e-9,1e9);k=_number(strike,'strike',1e-9,1e9)\n    t=_number(maturity,'maturity',1e-9,30);v=_number(vol,'volatility',1e-9,5)\n    r=_number(rate,'rate',-1,1);q=_number(dividend,'dividend',-1,1)\n    d1=(math.log(s/k)+(r-q+v*v/2)*t)/(v*math.sqrt(t));d2=d1-v*math.sqrt(t)\n    call=s*math.exp(-q*t)*_cdf(d1)-k*math.exp(-r*t)*_cdf(d2)\n    put=k*math.exp(-r*t)*_cdf(-d2)-s*math.exp(-q*t)*_cdf(-d1)\n    phi=math.exp(-d1*d1/2)/math.sqrt(2*math.pi)\n    return {'call':call,'put':put,'d1':d1,'d2':d2,\n            'delta':math.exp(-q*t)*_cdf(d1),'vega_per_unit_vol':s*math.exp(-q*t)*phi*math.sqrt(t)}\n\ndef _newton_iv(target, spot, strike, rate, maturity, guess=.2, tolerance=1e-10, max_iterations=20):\n    target=_number(target,'market price',0,1e9)\n    lower=max(0,spot-strike*math.exp(-rate*maturity));upper=spot\n    if not lower < target < upper:raise ValueError('Target is outside the strict European call price bounds.')\n    lo,hi=1e-8,5.0;sigma=_number(guess,'initial guess',lo,hi);trace=[];fallbacks=0\n    for index in range(max_iterations):\n        value=_bsm(spot,strike,rate,sigma,maturity);error=value['call']-target\n        trace.append({'evaluation':index+1,'sigma':sigma,'call_price':value['call'],'price_error':error,\n                      'vega_per_unit_vol':value['vega_per_unit_vol']})\n        if abs(error)<=tolerance:\n            return {'volatility':sigma,'converged':True,'price_evaluations':len(trace),'newton_updates':len(trace)-1,\n                    'price_error':error,'repriced_call':value['call'],'fallback_steps':fallbacks,'trace':trace}\n        if error>0:hi=sigma\n        else:lo=sigma\n        candidate=sigma-error/value['vega_per_unit_vol'] if value['vega_per_unit_vol']>1e-12 else float('nan')\n        if not math.isfinite(candidate) or not lo<candidate<hi:\n            candidate=(lo+hi)/2;fallbacks+=1\n        sigma=candidate\n    raise ValueError('Implied volatility did not converge within the bounded iteration budget.')\n\ndef _barrier_cashflow(spot,strike,barrier,notional,previously_touched=False):\n    knocked_out=previously_touched or spot<=barrier\n    return knocked_out,0.0 if knocked_out else max(spot-strike,0)*notional\n\ndef _solve_bs(t):\n    v=_bsm(t['spot'],t['strike'],t['rate'],t['volatility'],t['maturity_years'],t['dividend_yield'])\n    lhs=v['call']-v['put'];rhs=t['spot']*math.exp(-t['dividend_yield']*t['maturity_years'])-t['strike']*math.exp(-t['rate']*t['maturity_years'])\n    return {**v,'vega_per_vol_point':v['vega_per_unit_vol']*.01,'parity_lhs':lhs,'parity_rhs':rhs,'parity_gap':lhs-rhs,\n            'price_unit':'currency per underlying unit','checks':{'parity_holds':abs(lhs-rhs)<1e-10,'positive_vega':v['vega_per_unit_vol']>0,'call_delta_above_half':v['delta']>.5}}\n\ndef _pack_reference(exercise_id,ticket,result,conventions,limitations,assumptions):\n    result=dict(result);checks=result.pop('checks')\n    return {'schema_version':'tpl.practice-reference.v1','id':exercise_id,'ticket':ticket,'result':result,\n            'checks':checks,'conventions':conventions,'limitations':limitations,'assumptions':assumptions,\n            'execution_mode':'authored_fixed_reference; no learner code executed'}\n\nREFERENCE_ID = json.loads('\"bs-eur-call\"')\nTICKET = json.loads('{\"spot\": 100, \"strike\": 100, \"rate\": 0.02, \"volatility\": 0.2, \"maturity_years\": 0.5, \"dividend_yield\": 0}')\nCONVENTIONS = json.loads('[\"Continuous annual rate and dividend yield; volatility is annualized decimal.\", \"European exercise; 6 months represented as 0.5 years.\", \"Delta per underlying unit; vega per unit volatility and per 1 percentage point are distinguished.\"]')\nLIMITATIONS = json.loads('[\"Constant volatility and deterministic carry; no bid/ask, early exercise, transaction costs or live price.\"]')\nASSUMPTIONS = json.loads('[\"Dividend yield is assumed zero because the brief does not supply it.\"]')\n\nif __name__ == \"__main__\":\n    result = _pack_reference(REFERENCE_ID, TICKET, _solve_bs(TICKET), CONVENTIONS, LIMITATIONS, ASSUMPTIONS)\n    print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))\n",
+      "output": "{\n  \"assumptions\": [\n    \"Dividend yield is assumed zero because the brief does not supply it.\"\n  ],\n  \"checks\": {\n    \"call_delta_above_half\": true,\n    \"parity_holds\": true,\n    \"positive_vega\": true\n  },\n  \"conventions\": [\n    \"Continuous annual rate and dividend yield; volatility is annualized decimal.\",\n    \"European exercise; 6 months represented as 0.5 years.\",\n    \"Delta per underlying unit; vega per unit volatility and per 1 percentage point are distinguished.\"\n  ],\n  \"execution_mode\": \"authored_fixed_reference; no learner code executed\",\n  \"id\": \"bs-eur-call\",\n  \"limitations\": [\n    \"Constant volatility and deterministic carry; no bid/ask, early exercise, transaction costs or live price.\"\n  ],\n  \"result\": {\n    \"call\": 6.120654113455842,\n    \"d1\": 0.1414213562373095,\n    \"d2\": -2.7755575615628914e-17,\n    \"delta\": 0.5562314580091424,\n    \"parity_gap\": 0.0,\n    \"parity_lhs\": 0.9950166250831955,\n    \"parity_rhs\": 0.9950166250831955,\n    \"price_unit\": \"currency per underlying unit\",\n    \"put\": 5.1256374883726465,\n    \"vega_per_unit_vol\": 27.928790169723428,\n    \"vega_per_vol_point\": 0.2792879016972343\n  },\n  \"schema_version\": \"tpl.practice-reference.v1\",\n  \"ticket\": {\n    \"dividend_yield\": 0,\n    \"maturity_years\": 0.5,\n    \"rate\": 0.02,\n    \"spot\": 100,\n    \"strike\": 100,\n    \"volatility\": 0.2\n  }\n}",
+      "dependencies": [],
+      "python_version": ">=3.10",
+      "output_format": "JSON actually produced by the standalone Python reference",
+      "assessment_notice": "A computed reference and self-review aid; no expert reasoning grade or hiring certification."
+    },
+    {
+      "schema_version": "tpl.practice-reference.v1",
+      "id": "options-book-greeks",
+      "ticket": {
+        "delta_per_pct_point": 250000,
+        "gamma_per_pct_point_squared": -80000,
+        "vega_per_vol_point": 120000,
+        "theta_per_day": -15000,
+        "spot_move_pct_points": -2,
+        "vol_move_points": 3,
+        "elapsed_days": 1,
+        "currency": "EUR"
+      },
+      "result": {
+        "currency": "EUR",
+        "delta_pnl": -500000,
+        "gamma_pnl": -160000.0,
+        "vega_pnl": 360000,
+        "theta_pnl": -15000,
+        "total_pnl": -315000.0,
+        "largest_absolute_component": "delta"
+      },
+      "checks": {
+        "short_gamma_loses_on_move": true,
+        "long_vega_gains_on_vol_rise": true,
+        "total_reconciles": true
+      },
+      "conventions": [
+        "Spot shock is -2 percentage points, not -0.02 in these supplied units.",
+        "Gamma P&L includes 0.5 times second derivative times squared percent-point move.",
+        "Vega is per volatility percentage point; theta is per calendar day."
+      ],
+      "limitations": [
+        "Local Taylor attribution using supplied Greeks; excludes cross-Greeks, higher orders and exact repricing."
+      ],
+      "assumptions": [],
+      "execution_mode": "authored_fixed_reference; no learner code executed",
+      "solution": "# Standalone authored TPL practice reference. No learner code is executed by the service.\nfrom __future__ import annotations\nimport json\nimport math\nimport statistics\n\ndef _number(value, label, low, high):\n    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:\n        raise ValueError(f'{label} must be a finite number in [{low}, {high}].')\n    return float(value)\n\ndef _cdf(x):\n    return .5 * (1 + math.erf(x / math.sqrt(2)))\n\ndef _bsm(spot, strike, rate, vol, maturity, dividend=0):\n    s=_number(spot,'spot',1e-9,1e9);k=_number(strike,'strike',1e-9,1e9)\n    t=_number(maturity,'maturity',1e-9,30);v=_number(vol,'volatility',1e-9,5)\n    r=_number(rate,'rate',-1,1);q=_number(dividend,'dividend',-1,1)\n    d1=(math.log(s/k)+(r-q+v*v/2)*t)/(v*math.sqrt(t));d2=d1-v*math.sqrt(t)\n    call=s*math.exp(-q*t)*_cdf(d1)-k*math.exp(-r*t)*_cdf(d2)\n    put=k*math.exp(-r*t)*_cdf(-d2)-s*math.exp(-q*t)*_cdf(-d1)\n    phi=math.exp(-d1*d1/2)/math.sqrt(2*math.pi)\n    return {'call':call,'put':put,'d1':d1,'d2':d2,\n            'delta':math.exp(-q*t)*_cdf(d1),'vega_per_unit_vol':s*math.exp(-q*t)*phi*math.sqrt(t)}\n\ndef _newton_iv(target, spot, strike, rate, maturity, guess=.2, tolerance=1e-10, max_iterations=20):\n    target=_number(target,'market price',0,1e9)\n    lower=max(0,spot-strike*math.exp(-rate*maturity));upper=spot\n    if not lower < target < upper:raise ValueError('Target is outside the strict European call price bounds.')\n    lo,hi=1e-8,5.0;sigma=_number(guess,'initial guess',lo,hi);trace=[];fallbacks=0\n    for index in range(max_iterations):\n        value=_bsm(spot,strike,rate,sigma,maturity);error=value['call']-target\n        trace.append({'evaluation':index+1,'sigma':sigma,'call_price':value['call'],'price_error':error,\n                      'vega_per_unit_vol':value['vega_per_unit_vol']})\n        if abs(error)<=tolerance:\n            return {'volatility':sigma,'converged':True,'price_evaluations':len(trace),'newton_updates':len(trace)-1,\n                    'price_error':error,'repriced_call':value['call'],'fallback_steps':fallbacks,'trace':trace}\n        if error>0:hi=sigma\n        else:lo=sigma\n        candidate=sigma-error/value['vega_per_unit_vol'] if value['vega_per_unit_vol']>1e-12 else float('nan')\n        if not math.isfinite(candidate) or not lo<candidate<hi:\n            candidate=(lo+hi)/2;fallbacks+=1\n        sigma=candidate\n    raise ValueError('Implied volatility did not converge within the bounded iteration budget.')\n\ndef _barrier_cashflow(spot,strike,barrier,notional,previously_touched=False):\n    knocked_out=previously_touched or spot<=barrier\n    return knocked_out,0.0 if knocked_out else max(spot-strike,0)*notional\n\ndef _solve_greeks(t):\n    delta=t['delta_per_pct_point']*t['spot_move_pct_points']\n    gamma=.5*t['gamma_per_pct_point_squared']*t['spot_move_pct_points']**2\n    vega=t['vega_per_vol_point']*t['vol_move_points'];theta=t['theta_per_day']*t['elapsed_days']\n    parts={'delta':delta,'gamma':gamma,'vega':vega,'theta':theta}\n    return {'currency':t['currency'],'delta_pnl':delta,'gamma_pnl':gamma,'vega_pnl':vega,'theta_pnl':theta,\n            'total_pnl':delta+gamma+vega+theta,'largest_absolute_component':max(parts,key=lambda key:abs(parts[key])),\n            'checks':{'short_gamma_loses_on_move':gamma<0,'long_vega_gains_on_vol_rise':vega>0,\n                      'total_reconciles':math.isclose(delta+gamma+vega+theta,-315000)}}\n\ndef _pack_reference(exercise_id,ticket,result,conventions,limitations,assumptions):\n    result=dict(result);checks=result.pop('checks')\n    return {'schema_version':'tpl.practice-reference.v1','id':exercise_id,'ticket':ticket,'result':result,\n            'checks':checks,'conventions':conventions,'limitations':limitations,'assumptions':assumptions,\n            'execution_mode':'authored_fixed_reference; no learner code executed'}\n\nREFERENCE_ID = json.loads('\"options-book-greeks\"')\nTICKET = json.loads('{\"delta_per_pct_point\": 250000, \"gamma_per_pct_point_squared\": -80000, \"vega_per_vol_point\": 120000, \"theta_per_day\": -15000, \"spot_move_pct_points\": -2, \"vol_move_points\": 3, \"elapsed_days\": 1, \"currency\": \"EUR\"}')\nCONVENTIONS = json.loads('[\"Spot shock is -2 percentage points, not -0.02 in these supplied units.\", \"Gamma P&L includes 0.5 times second derivative times squared percent-point move.\", \"Vega is per volatility percentage point; theta is per calendar day.\"]')\nLIMITATIONS = json.loads('[\"Local Taylor attribution using supplied Greeks; excludes cross-Greeks, higher orders and exact repricing.\"]')\nASSUMPTIONS = json.loads('[]')\n\nif __name__ == \"__main__\":\n    result = _pack_reference(REFERENCE_ID, TICKET, _solve_greeks(TICKET), CONVENTIONS, LIMITATIONS, ASSUMPTIONS)\n    print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))\n",
+      "output": "{\n  \"assumptions\": [],\n  \"checks\": {\n    \"long_vega_gains_on_vol_rise\": true,\n    \"short_gamma_loses_on_move\": true,\n    \"total_reconciles\": true\n  },\n  \"conventions\": [\n    \"Spot shock is -2 percentage points, not -0.02 in these supplied units.\",\n    \"Gamma P&L includes 0.5 times second derivative times squared percent-point move.\",\n    \"Vega is per volatility percentage point; theta is per calendar day.\"\n  ],\n  \"execution_mode\": \"authored_fixed_reference; no learner code executed\",\n  \"id\": \"options-book-greeks\",\n  \"limitations\": [\n    \"Local Taylor attribution using supplied Greeks; excludes cross-Greeks, higher orders and exact repricing.\"\n  ],\n  \"result\": {\n    \"currency\": \"EUR\",\n    \"delta_pnl\": -500000,\n    \"gamma_pnl\": -160000.0,\n    \"largest_absolute_component\": \"delta\",\n    \"theta_pnl\": -15000,\n    \"total_pnl\": -315000.0,\n    \"vega_pnl\": 360000\n  },\n  \"schema_version\": \"tpl.practice-reference.v1\",\n  \"ticket\": {\n    \"currency\": \"EUR\",\n    \"delta_per_pct_point\": 250000,\n    \"elapsed_days\": 1,\n    \"gamma_per_pct_point_squared\": -80000,\n    \"spot_move_pct_points\": -2,\n    \"theta_per_day\": -15000,\n    \"vega_per_vol_point\": 120000,\n    \"vol_move_points\": 3\n  }\n}",
+      "dependencies": [],
+      "python_version": ">=3.10",
+      "output_format": "JSON actually produced by the standalone Python reference",
+      "assessment_notice": "A computed reference and self-review aid; no expert reasoning grade or hiring certification."
+    },
+    {
+      "schema_version": "tpl.practice-reference.v1",
+      "id": "swap-dv01",
+      "ticket": {
+        "notional": 100000000,
+        "fixed_coupon": 0.032,
+        "par_rate": 0.03,
+        "annuity": 4.55,
+        "shock_bp": 10
+      },
+      "result": {
+        "currency": "EUR",
+        "position": "payer fixed / receiver floating",
+        "pv_approximation": -910000.0000000007,
+        "signed_dv01_per_bp_up": 45500.0,
+        "shock_pnl": 455000.0,
+        "shocked_pv_approximation": -455000.0000000007,
+        "hedge_direction": "Receive fixed / pay floating to offset the payer rate sensitivity."
+      },
+      "checks": {
+        "payer_gains_on_rates_up": true,
+        "above_market_fixed_coupon_has_negative_pv": true
+      },
+      "conventions": [
+        "Payer fixed / receiver floating; positive DV01 means gain for a +1 bp rate move.",
+        "Annuity is supplied and held fixed; PV=(par-fixed)*annuity*notional."
+      ],
+      "limitations": [
+        "First-order parallel shock; no curve bootstrap, annuity change, basis, convexity or transaction costs."
+      ],
+      "assumptions": [],
+      "execution_mode": "authored_fixed_reference; no learner code executed",
+      "solution": "# Standalone authored TPL practice reference. No learner code is executed by the service.\nfrom __future__ import annotations\nimport json\nimport math\nimport statistics\n\ndef _number(value, label, low, high):\n    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:\n        raise ValueError(f'{label} must be a finite number in [{low}, {high}].')\n    return float(value)\n\ndef _cdf(x):\n    return .5 * (1 + math.erf(x / math.sqrt(2)))\n\ndef _bsm(spot, strike, rate, vol, maturity, dividend=0):\n    s=_number(spot,'spot',1e-9,1e9);k=_number(strike,'strike',1e-9,1e9)\n    t=_number(maturity,'maturity',1e-9,30);v=_number(vol,'volatility',1e-9,5)\n    r=_number(rate,'rate',-1,1);q=_number(dividend,'dividend',-1,1)\n    d1=(math.log(s/k)+(r-q+v*v/2)*t)/(v*math.sqrt(t));d2=d1-v*math.sqrt(t)\n    call=s*math.exp(-q*t)*_cdf(d1)-k*math.exp(-r*t)*_cdf(d2)\n    put=k*math.exp(-r*t)*_cdf(-d2)-s*math.exp(-q*t)*_cdf(-d1)\n    phi=math.exp(-d1*d1/2)/math.sqrt(2*math.pi)\n    return {'call':call,'put':put,'d1':d1,'d2':d2,\n            'delta':math.exp(-q*t)*_cdf(d1),'vega_per_unit_vol':s*math.exp(-q*t)*phi*math.sqrt(t)}\n\ndef _newton_iv(target, spot, strike, rate, maturity, guess=.2, tolerance=1e-10, max_iterations=20):\n    target=_number(target,'market price',0,1e9)\n    lower=max(0,spot-strike*math.exp(-rate*maturity));upper=spot\n    if not lower < target < upper:raise ValueError('Target is outside the strict European call price bounds.')\n    lo,hi=1e-8,5.0;sigma=_number(guess,'initial guess',lo,hi);trace=[];fallbacks=0\n    for index in range(max_iterations):\n        value=_bsm(spot,strike,rate,sigma,maturity);error=value['call']-target\n        trace.append({'evaluation':index+1,'sigma':sigma,'call_price':value['call'],'price_error':error,\n                      'vega_per_unit_vol':value['vega_per_unit_vol']})\n        if abs(error)<=tolerance:\n            return {'volatility':sigma,'converged':True,'price_evaluations':len(trace),'newton_updates':len(trace)-1,\n                    'price_error':error,'repriced_call':value['call'],'fallback_steps':fallbacks,'trace':trace}\n        if error>0:hi=sigma\n        else:lo=sigma\n        candidate=sigma-error/value['vega_per_unit_vol'] if value['vega_per_unit_vol']>1e-12 else float('nan')\n        if not math.isfinite(candidate) or not lo<candidate<hi:\n            candidate=(lo+hi)/2;fallbacks+=1\n        sigma=candidate\n    raise ValueError('Implied volatility did not converge within the bounded iteration budget.')\n\ndef _barrier_cashflow(spot,strike,barrier,notional,previously_touched=False):\n    knocked_out=previously_touched or spot<=barrier\n    return knocked_out,0.0 if knocked_out else max(spot-strike,0)*notional\n\ndef _solve_swap(t):\n    pv=(t['par_rate']-t['fixed_coupon'])*t['annuity']*t['notional']\n    dv01=t['notional']*t['annuity']*.0001;pnl=dv01*t['shock_bp']\n    return {'currency':'EUR','position':'payer fixed / receiver floating','pv_approximation':pv,\n            'signed_dv01_per_bp_up':dv01,'shock_pnl':pnl,'shocked_pv_approximation':pv+pnl,\n            'hedge_direction':'Receive fixed / pay floating to offset the payer rate sensitivity.',\n            'checks':{'payer_gains_on_rates_up':pnl>0,'above_market_fixed_coupon_has_negative_pv':pv<0}}\n\ndef _pack_reference(exercise_id,ticket,result,conventions,limitations,assumptions):\n    result=dict(result);checks=result.pop('checks')\n    return {'schema_version':'tpl.practice-reference.v1','id':exercise_id,'ticket':ticket,'result':result,\n            'checks':checks,'conventions':conventions,'limitations':limitations,'assumptions':assumptions,\n            'execution_mode':'authored_fixed_reference; no learner code executed'}\n\nREFERENCE_ID = json.loads('\"swap-dv01\"')\nTICKET = json.loads('{\"notional\": 100000000, \"fixed_coupon\": 0.032, \"par_rate\": 0.03, \"annuity\": 4.55, \"shock_bp\": 10}')\nCONVENTIONS = json.loads('[\"Payer fixed / receiver floating; positive DV01 means gain for a +1 bp rate move.\", \"Annuity is supplied and held fixed; PV=(par-fixed)*annuity*notional.\"]')\nLIMITATIONS = json.loads('[\"First-order parallel shock; no curve bootstrap, annuity change, basis, convexity or transaction costs.\"]')\nASSUMPTIONS = json.loads('[]')\n\nif __name__ == \"__main__\":\n    result = _pack_reference(REFERENCE_ID, TICKET, _solve_swap(TICKET), CONVENTIONS, LIMITATIONS, ASSUMPTIONS)\n    print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))\n",
+      "output": "{\n  \"assumptions\": [],\n  \"checks\": {\n    \"above_market_fixed_coupon_has_negative_pv\": true,\n    \"payer_gains_on_rates_up\": true\n  },\n  \"conventions\": [\n    \"Payer fixed / receiver floating; positive DV01 means gain for a +1 bp rate move.\",\n    \"Annuity is supplied and held fixed; PV=(par-fixed)*annuity*notional.\"\n  ],\n  \"execution_mode\": \"authored_fixed_reference; no learner code executed\",\n  \"id\": \"swap-dv01\",\n  \"limitations\": [\n    \"First-order parallel shock; no curve bootstrap, annuity change, basis, convexity or transaction costs.\"\n  ],\n  \"result\": {\n    \"currency\": \"EUR\",\n    \"hedge_direction\": \"Receive fixed / pay floating to offset the payer rate sensitivity.\",\n    \"position\": \"payer fixed / receiver floating\",\n    \"pv_approximation\": -910000.0000000007,\n    \"shock_pnl\": 455000.0,\n    \"shocked_pv_approximation\": -455000.0000000007,\n    \"signed_dv01_per_bp_up\": 45500.0\n  },\n  \"schema_version\": \"tpl.practice-reference.v1\",\n  \"ticket\": {\n    \"annuity\": 4.55,\n    \"fixed_coupon\": 0.032,\n    \"notional\": 100000000,\n    \"par_rate\": 0.03,\n    \"shock_bp\": 10\n  }\n}",
+      "dependencies": [],
+      "python_version": ">=3.10",
+      "output_format": "JSON actually produced by the standalone Python reference",
+      "assessment_notice": "A computed reference and self-review aid; no expert reasoning grade or hiring certification."
+    },
+    {
+      "schema_version": "tpl.practice-reference.v1",
+      "id": "barrier-knock-in",
+      "ticket": {
+        "spot_initial": 1.08,
+        "strike": 1.1,
+        "barrier": 1,
+        "notional_eur": 10000000,
+        "terminal_spots": [
+          1.05,
+          1,
+          1.2
+        ]
+      },
+      "result": {
+        "barrier_type": "down-and-out call",
+        "notional_currency": "EUR",
+        "payoff_currency": "USD",
+        "scenarios": [
+          {
+            "terminal_spot": 1.05,
+            "earlier_touch_assumed": false,
+            "knocked_out": false,
+            "payoff_usd": 0
+          },
+          {
+            "terminal_spot": 1,
+            "earlier_touch_assumed": false,
+            "knocked_out": true,
+            "payoff_usd": 0.0
+          },
+          {
+            "terminal_spot": 1.2,
+            "earlier_touch_assumed": false,
+            "knocked_out": false,
+            "payoff_usd": 999999.9999999987
+          }
+        ],
+        "rebound_to_1_20_after_prior_touch_payoff_usd": 0.0
+      },
+      "checks": {
+        "touch_at_barrier_knocks_out": true,
+        "positive_no_touch_payoff": true,
+        "prior_touch_overrides_terminal_recovery": true
+      },
+      "conventions": [
+        "Despite the immutable legacy ID, this brief specifies a DOWN-AND-OUT call.",
+        "Touch at or below 1.0000 knocks out with no rebate.",
+        "EUR base notional times USD/EUR payoff gives USD cashflow."
+      ],
+      "limitations": [
+        "Scenario cashflows, not a barrier option price or hedge Greek. Terminal spot alone does not reveal earlier barrier touch."
+      ],
+      "assumptions": [
+        "For the three listed scenarios, no earlier touch is assumed; terminal touch is tested. A separate recovered-terminal example explicitly assumes prior touch."
+      ],
+      "execution_mode": "authored_fixed_reference; no learner code executed",
+      "solution": "# Standalone authored TPL practice reference. No learner code is executed by the service.\nfrom __future__ import annotations\nimport json\nimport math\nimport statistics\n\ndef _number(value, label, low, high):\n    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:\n        raise ValueError(f'{label} must be a finite number in [{low}, {high}].')\n    return float(value)\n\ndef _cdf(x):\n    return .5 * (1 + math.erf(x / math.sqrt(2)))\n\ndef _bsm(spot, strike, rate, vol, maturity, dividend=0):\n    s=_number(spot,'spot',1e-9,1e9);k=_number(strike,'strike',1e-9,1e9)\n    t=_number(maturity,'maturity',1e-9,30);v=_number(vol,'volatility',1e-9,5)\n    r=_number(rate,'rate',-1,1);q=_number(dividend,'dividend',-1,1)\n    d1=(math.log(s/k)+(r-q+v*v/2)*t)/(v*math.sqrt(t));d2=d1-v*math.sqrt(t)\n    call=s*math.exp(-q*t)*_cdf(d1)-k*math.exp(-r*t)*_cdf(d2)\n    put=k*math.exp(-r*t)*_cdf(-d2)-s*math.exp(-q*t)*_cdf(-d1)\n    phi=math.exp(-d1*d1/2)/math.sqrt(2*math.pi)\n    return {'call':call,'put':put,'d1':d1,'d2':d2,\n            'delta':math.exp(-q*t)*_cdf(d1),'vega_per_unit_vol':s*math.exp(-q*t)*phi*math.sqrt(t)}\n\ndef _newton_iv(target, spot, strike, rate, maturity, guess=.2, tolerance=1e-10, max_iterations=20):\n    target=_number(target,'market price',0,1e9)\n    lower=max(0,spot-strike*math.exp(-rate*maturity));upper=spot\n    if not lower < target < upper:raise ValueError('Target is outside the strict European call price bounds.')\n    lo,hi=1e-8,5.0;sigma=_number(guess,'initial guess',lo,hi);trace=[];fallbacks=0\n    for index in range(max_iterations):\n        value=_bsm(spot,strike,rate,sigma,maturity);error=value['call']-target\n        trace.append({'evaluation':index+1,'sigma':sigma,'call_price':value['call'],'price_error':error,\n                      'vega_per_unit_vol':value['vega_per_unit_vol']})\n        if abs(error)<=tolerance:\n            return {'volatility':sigma,'converged':True,'price_evaluations':len(trace),'newton_updates':len(trace)-1,\n                    'price_error':error,'repriced_call':value['call'],'fallback_steps':fallbacks,'trace':trace}\n        if error>0:hi=sigma\n        else:lo=sigma\n        candidate=sigma-error/value['vega_per_unit_vol'] if value['vega_per_unit_vol']>1e-12 else float('nan')\n        if not math.isfinite(candidate) or not lo<candidate<hi:\n            candidate=(lo+hi)/2;fallbacks+=1\n        sigma=candidate\n    raise ValueError('Implied volatility did not converge within the bounded iteration budget.')\n\ndef _barrier_cashflow(spot,strike,barrier,notional,previously_touched=False):\n    knocked_out=previously_touched or spot<=barrier\n    return knocked_out,0.0 if knocked_out else max(spot-strike,0)*notional\n\ndef _solve_barrier(t):\n    records=[]\n    for spot in t['terminal_spots']:\n        knocked_out,payoff=_barrier_cashflow(spot,t['strike'],t['barrier'],t['notional_eur'])\n        records.append({'terminal_spot':spot,'earlier_touch_assumed':False,'knocked_out':knocked_out,'payoff_usd':payoff})\n    _,rebound_after_prior_touch=_barrier_cashflow(t['terminal_spots'][-1],t['strike'],t['barrier'],t['notional_eur'],previously_touched=True)\n    return {'barrier_type':'down-and-out call','notional_currency':'EUR','payoff_currency':'USD','scenarios':records,\n            'rebound_to_1_20_after_prior_touch_payoff_usd':rebound_after_prior_touch,\n            'checks':{'touch_at_barrier_knocks_out':records[1]['knocked_out'],'positive_no_touch_payoff':records[2]['payoff_usd']>0,\n                      'prior_touch_overrides_terminal_recovery':rebound_after_prior_touch==0}}\n\ndef _pack_reference(exercise_id,ticket,result,conventions,limitations,assumptions):\n    result=dict(result);checks=result.pop('checks')\n    return {'schema_version':'tpl.practice-reference.v1','id':exercise_id,'ticket':ticket,'result':result,\n            'checks':checks,'conventions':conventions,'limitations':limitations,'assumptions':assumptions,\n            'execution_mode':'authored_fixed_reference; no learner code executed'}\n\nREFERENCE_ID = json.loads('\"barrier-knock-in\"')\nTICKET = json.loads('{\"spot_initial\": 1.08, \"strike\": 1.1, \"barrier\": 1, \"notional_eur\": 10000000, \"terminal_spots\": [1.05, 1, 1.2]}')\nCONVENTIONS = json.loads('[\"Despite the immutable legacy ID, this brief specifies a DOWN-AND-OUT call.\", \"Touch at or below 1.0000 knocks out with no rebate.\", \"EUR base notional times USD/EUR payoff gives USD cashflow.\"]')\nLIMITATIONS = json.loads('[\"Scenario cashflows, not a barrier option price or hedge Greek. Terminal spot alone does not reveal earlier barrier touch.\"]')\nASSUMPTIONS = json.loads('[\"For the three listed scenarios, no earlier touch is assumed; terminal touch is tested. A separate recovered-terminal example explicitly assumes prior touch.\"]')\n\nif __name__ == \"__main__\":\n    result = _pack_reference(REFERENCE_ID, TICKET, _solve_barrier(TICKET), CONVENTIONS, LIMITATIONS, ASSUMPTIONS)\n    print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))\n",
+      "output": "{\n  \"assumptions\": [\n    \"For the three listed scenarios, no earlier touch is assumed; terminal touch is tested. A separate recovered-terminal example explicitly assumes prior touch.\"\n  ],\n  \"checks\": {\n    \"positive_no_touch_payoff\": true,\n    \"prior_touch_overrides_terminal_recovery\": true,\n    \"touch_at_barrier_knocks_out\": true\n  },\n  \"conventions\": [\n    \"Despite the immutable legacy ID, this brief specifies a DOWN-AND-OUT call.\",\n    \"Touch at or below 1.0000 knocks out with no rebate.\",\n    \"EUR base notional times USD/EUR payoff gives USD cashflow.\"\n  ],\n  \"execution_mode\": \"authored_fixed_reference; no learner code executed\",\n  \"id\": \"barrier-knock-in\",\n  \"limitations\": [\n    \"Scenario cashflows, not a barrier option price or hedge Greek. Terminal spot alone does not reveal earlier barrier touch.\"\n  ],\n  \"result\": {\n    \"barrier_type\": \"down-and-out call\",\n    \"notional_currency\": \"EUR\",\n    \"payoff_currency\": \"USD\",\n    \"rebound_to_1_20_after_prior_touch_payoff_usd\": 0.0,\n    \"scenarios\": [\n      {\n        \"earlier_touch_assumed\": false,\n        \"knocked_out\": false,\n        \"payoff_usd\": 0,\n        \"terminal_spot\": 1.05\n      },\n      {\n        \"earlier_touch_assumed\": false,\n        \"knocked_out\": true,\n        \"payoff_usd\": 0.0,\n        \"terminal_spot\": 1\n      },\n      {\n        \"earlier_touch_assumed\": false,\n        \"knocked_out\": false,\n        \"payoff_usd\": 999999.9999999987,\n        \"terminal_spot\": 1.2\n      }\n    ]\n  },\n  \"schema_version\": \"tpl.practice-reference.v1\",\n  \"ticket\": {\n    \"barrier\": 1,\n    \"notional_eur\": 10000000,\n    \"spot_initial\": 1.08,\n    \"strike\": 1.1,\n    \"terminal_spots\": [\n      1.05,\n      1,\n      1.2\n    ]\n  }\n}",
+      "dependencies": [],
+      "python_version": ">=3.10",
+      "output_format": "JSON actually produced by the standalone Python reference",
+      "assessment_notice": "A computed reference and self-review aid; no expert reasoning grade or hiring certification."
+    },
+    {
+      "schema_version": "tpl.practice-reference.v1",
+      "id": "smile-fit",
+      "ticket": {
+        "underlying": "SPX",
+        "tenor_days": 30,
+        "quotes": [
+          {
+            "moneyness": 0.8,
+            "iv": 0.29
+          },
+          {
+            "moneyness": 0.9,
+            "iv": 0.23
+          },
+          {
+            "moneyness": 1,
+            "iv": 0.18
+          },
+          {
+            "moneyness": 1.1,
+            "iv": 0.16
+          },
+          {
+            "moneyness": 1.2,
+            "iv": 0.17
+          }
+        ]
+      },
+      "result": {
+        "fit_family": "quadratic IV in log(K/S), not SVI",
+        "quote_count": 5,
+        "retained_quote_count": 5,
+        "tenor_years": 0.0821917808219178,
+        "coefficients": {
+          "a": 0.18251768937294507,
+          "b": -0.27167126517158624,
+          "c": 1.0036034000888754
+        },
+        "rms_iv_residual": 0.004937574387763099,
+        "points": [
+          {
+            "moneyness": 0.8,
+            "observed_iv": 0.29,
+            "fitted_iv": 0.2931118490274264,
+            "iv_residual": -0.0031118490274263944
+          },
+          {
+            "moneyness": 0.9,
+            "observed_iv": 0.23,
+            "fitted_iv": 0.22228195298209205,
+            "iv_residual": 0.0077180470179079586
+          },
+          {
+            "moneyness": 1,
+            "observed_iv": 0.18,
+            "fitted_iv": 0.18251768937294507,
+            "iv_residual": -0.002517689372945081
+          },
+          {
+            "moneyness": 1.1,
+            "observed_iv": 0.16,
+            "fitted_iv": 0.1657414160119637,
+            "iv_residual": -0.005741416011963707
+          },
+          {
+            "moneyness": 1.2,
+            "observed_iv": 0.17,
+            "fitted_iv": 0.16634709260557234,
+            "iv_residual": 0.003652907394427668
+          }
+        ],
+        "price_bounds_checked": false,
+        "implied_volatility_inversion_performed": false,
+        "stale_or_crossed_quotes_assessed": false,
+        "no_arbitrage_proven": false
+      },
+      "checks": {
+        "all_five_numeric_iv_quotes_retained": true,
+        "full_rank": true,
+        "negative_atm_log_moneyness_slope": true,
+        "downside_iv_exceeds_atm": true
+      },
+      "conventions": [
+        "Fit IV=a+b*log(K/S)+c*log(K/S)^2 by ordinary least squares; IV is annualized decimal.",
+        "Numerical IV validity is checked on the five original supplied quotes."
+      ],
+      "limitations": [
+        "No option prices/bid-ask/timestamps are supplied, so price bounds, stale/crossed cleaning and IV inversion cannot be checked.",
+        "Quadratic interpolation is not SVI calibration and does not prove absence of butterfly/calendar arbitrage.",
+        "Demand/protection pressure is an interpretation to discuss, not an observed causal fact."
+      ],
+      "assumptions": [],
+      "execution_mode": "authored_fixed_reference; no learner code executed",
+      "solution": "# Standalone authored TPL practice reference. No learner code is executed by the service.\nfrom __future__ import annotations\nimport json\nimport math\nimport statistics\n\ndef _number(value, label, low, high):\n    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:\n        raise ValueError(f'{label} must be a finite number in [{low}, {high}].')\n    return float(value)\n\ndef _cdf(x):\n    return .5 * (1 + math.erf(x / math.sqrt(2)))\n\ndef _bsm(spot, strike, rate, vol, maturity, dividend=0):\n    s=_number(spot,'spot',1e-9,1e9);k=_number(strike,'strike',1e-9,1e9)\n    t=_number(maturity,'maturity',1e-9,30);v=_number(vol,'volatility',1e-9,5)\n    r=_number(rate,'rate',-1,1);q=_number(dividend,'dividend',-1,1)\n    d1=(math.log(s/k)+(r-q+v*v/2)*t)/(v*math.sqrt(t));d2=d1-v*math.sqrt(t)\n    call=s*math.exp(-q*t)*_cdf(d1)-k*math.exp(-r*t)*_cdf(d2)\n    put=k*math.exp(-r*t)*_cdf(-d2)-s*math.exp(-q*t)*_cdf(-d1)\n    phi=math.exp(-d1*d1/2)/math.sqrt(2*math.pi)\n    return {'call':call,'put':put,'d1':d1,'d2':d2,\n            'delta':math.exp(-q*t)*_cdf(d1),'vega_per_unit_vol':s*math.exp(-q*t)*phi*math.sqrt(t)}\n\ndef _newton_iv(target, spot, strike, rate, maturity, guess=.2, tolerance=1e-10, max_iterations=20):\n    target=_number(target,'market price',0,1e9)\n    lower=max(0,spot-strike*math.exp(-rate*maturity));upper=spot\n    if not lower < target < upper:raise ValueError('Target is outside the strict European call price bounds.')\n    lo,hi=1e-8,5.0;sigma=_number(guess,'initial guess',lo,hi);trace=[];fallbacks=0\n    for index in range(max_iterations):\n        value=_bsm(spot,strike,rate,sigma,maturity);error=value['call']-target\n        trace.append({'evaluation':index+1,'sigma':sigma,'call_price':value['call'],'price_error':error,\n                      'vega_per_unit_vol':value['vega_per_unit_vol']})\n        if abs(error)<=tolerance:\n            return {'volatility':sigma,'converged':True,'price_evaluations':len(trace),'newton_updates':len(trace)-1,\n                    'price_error':error,'repriced_call':value['call'],'fallback_steps':fallbacks,'trace':trace}\n        if error>0:hi=sigma\n        else:lo=sigma\n        candidate=sigma-error/value['vega_per_unit_vol'] if value['vega_per_unit_vol']>1e-12 else float('nan')\n        if not math.isfinite(candidate) or not lo<candidate<hi:\n            candidate=(lo+hi)/2;fallbacks+=1\n        sigma=candidate\n    raise ValueError('Implied volatility did not converge within the bounded iteration budget.')\n\ndef _barrier_cashflow(spot,strike,barrier,notional,previously_touched=False):\n    knocked_out=previously_touched or spot<=barrier\n    return knocked_out,0.0 if knocked_out else max(spot-strike,0)*notional\n\ndef _solve_smile(t):\n    import numpy as np\n    quotes=t['quotes']\n    retained=[row for row in quotes if math.isfinite(row['moneyness']) and row['moneyness']>0 and math.isfinite(row['iv']) and 0<row['iv']<=5]\n    x=np.log(np.array([row['moneyness'] for row in retained]));y=np.array([row['iv'] for row in retained])\n    design=np.column_stack((np.ones(len(x)),x,x*x));coef,_,rank,_=np.linalg.lstsq(design,y,rcond=None)\n    fitted=design@coef;residual=y-fitted\n    return {'fit_family':'quadratic IV in log(K/S), not SVI','quote_count':len(quotes),'retained_quote_count':len(retained),\n            'tenor_years':t['tenor_days']/365,'coefficients':{'a':float(coef[0]),'b':float(coef[1]),'c':float(coef[2])},\n            'rms_iv_residual':float(np.sqrt(np.mean(residual**2))),\n            'points':[{'moneyness':row['moneyness'],'observed_iv':row['iv'],'fitted_iv':float(fit),'iv_residual':float(err)} for row,fit,err in zip(retained,fitted,residual)],\n            'price_bounds_checked':False,'implied_volatility_inversion_performed':False,'stale_or_crossed_quotes_assessed':False,\n            'no_arbitrage_proven':False,\n            'checks':{'all_five_numeric_iv_quotes_retained':len(retained)==5,'full_rank':int(rank)==3,\n                      'negative_atm_log_moneyness_slope':float(coef[1])<0,'downside_iv_exceeds_atm':retained[0]['iv']>retained[2]['iv']}}\n\ndef _pack_reference(exercise_id,ticket,result,conventions,limitations,assumptions):\n    result=dict(result);checks=result.pop('checks')\n    return {'schema_version':'tpl.practice-reference.v1','id':exercise_id,'ticket':ticket,'result':result,\n            'checks':checks,'conventions':conventions,'limitations':limitations,'assumptions':assumptions,\n            'execution_mode':'authored_fixed_reference; no learner code executed'}\n\nREFERENCE_ID = json.loads('\"smile-fit\"')\nTICKET = json.loads('{\"underlying\": \"SPX\", \"tenor_days\": 30, \"quotes\": [{\"moneyness\": 0.8, \"iv\": 0.29}, {\"moneyness\": 0.9, \"iv\": 0.23}, {\"moneyness\": 1, \"iv\": 0.18}, {\"moneyness\": 1.1, \"iv\": 0.16}, {\"moneyness\": 1.2, \"iv\": 0.17}]}')\nCONVENTIONS = json.loads('[\"Fit IV=a+b*log(K/S)+c*log(K/S)^2 by ordinary least squares; IV is annualized decimal.\", \"Numerical IV validity is checked on the five original supplied quotes.\"]')\nLIMITATIONS = json.loads('[\"No option prices/bid-ask/timestamps are supplied, so price bounds, stale/crossed cleaning and IV inversion cannot be checked.\", \"Quadratic interpolation is not SVI calibration and does not prove absence of butterfly/calendar arbitrage.\", \"Demand/protection pressure is an interpretation to discuss, not an observed causal fact.\"]')\nASSUMPTIONS = json.loads('[]')\n\nif __name__ == \"__main__\":\n    result = _pack_reference(REFERENCE_ID, TICKET, _solve_smile(TICKET), CONVENTIONS, LIMITATIONS, ASSUMPTIONS)\n    print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))\n",
+      "output": "{\n  \"assumptions\": [],\n  \"checks\": {\n    \"all_five_numeric_iv_quotes_retained\": true,\n    \"downside_iv_exceeds_atm\": true,\n    \"full_rank\": true,\n    \"negative_atm_log_moneyness_slope\": true\n  },\n  \"conventions\": [\n    \"Fit IV=a+b*log(K/S)+c*log(K/S)^2 by ordinary least squares; IV is annualized decimal.\",\n    \"Numerical IV validity is checked on the five original supplied quotes.\"\n  ],\n  \"execution_mode\": \"authored_fixed_reference; no learner code executed\",\n  \"id\": \"smile-fit\",\n  \"limitations\": [\n    \"No option prices/bid-ask/timestamps are supplied, so price bounds, stale/crossed cleaning and IV inversion cannot be checked.\",\n    \"Quadratic interpolation is not SVI calibration and does not prove absence of butterfly/calendar arbitrage.\",\n    \"Demand/protection pressure is an interpretation to discuss, not an observed causal fact.\"\n  ],\n  \"result\": {\n    \"coefficients\": {\n      \"a\": 0.18251768937294507,\n      \"b\": -0.27167126517158624,\n      \"c\": 1.0036034000888754\n    },\n    \"fit_family\": \"quadratic IV in log(K/S), not SVI\",\n    \"implied_volatility_inversion_performed\": false,\n    \"no_arbitrage_proven\": false,\n    \"points\": [\n      {\n        \"fitted_iv\": 0.2931118490274264,\n        \"iv_residual\": -0.0031118490274263944,\n        \"moneyness\": 0.8,\n        \"observed_iv\": 0.29\n      },\n      {\n        \"fitted_iv\": 0.22228195298209205,\n        \"iv_residual\": 0.0077180470179079586,\n        \"moneyness\": 0.9,\n        \"observed_iv\": 0.23\n      },\n      {\n        \"fitted_iv\": 0.18251768937294507,\n        \"iv_residual\": -0.002517689372945081,\n        \"moneyness\": 1,\n        \"observed_iv\": 0.18\n      },\n      {\n        \"fitted_iv\": 0.1657414160119637,\n        \"iv_residual\": -0.005741416011963707,\n        \"moneyness\": 1.1,\n        \"observed_iv\": 0.16\n      },\n      {\n        \"fitted_iv\": 0.16634709260557234,\n        \"iv_residual\": 0.003652907394427668,\n        \"moneyness\": 1.2,\n        \"observed_iv\": 0.17\n      }\n    ],\n    \"price_bounds_checked\": false,\n    \"quote_count\": 5,\n    \"retained_quote_count\": 5,\n    \"rms_iv_residual\": 0.004937574387763099,\n    \"stale_or_crossed_quotes_assessed\": false,\n    \"tenor_years\": 0.0821917808219178\n  },\n  \"schema_version\": \"tpl.practice-reference.v1\",\n  \"ticket\": {\n    \"quotes\": [\n      {\n        \"iv\": 0.29,\n        \"moneyness\": 0.8\n      },\n      {\n        \"iv\": 0.23,\n        \"moneyness\": 0.9\n      },\n      {\n        \"iv\": 0.18,\n        \"moneyness\": 1\n      },\n      {\n        \"iv\": 0.16,\n        \"moneyness\": 1.1\n      },\n      {\n        \"iv\": 0.17,\n        \"moneyness\": 1.2\n      }\n    ],\n    \"tenor_days\": 30,\n    \"underlying\": \"SPX\"\n  }\n}",
+      "dependencies": [
+        "numpy"
+      ],
+      "python_version": ">=3.10",
+      "output_format": "JSON actually produced by the standalone Python reference",
+      "assessment_notice": "A computed reference and self-review aid; no expert reasoning grade or hiring certification."
+    },
+    {
+      "schema_version": "tpl.practice-reference.v1",
+      "id": "mc-asian",
+      "ticket": {
+        "spot": 100,
+        "strike": 100,
+        "rate": 0.02,
+        "volatility": 0.2,
+        "maturity_years": 1,
+        "steps": 12,
+        "paths": 100000,
+        "seed": 7
+      },
+      "result": {
+        "price": 5.356683200676238,
+        "price_unit": "currency per underlying unit",
+        "standard_error": 0.025638091260381794,
+        "sample_std_discounted_payoff": 8.107476324206353,
+        "confidence_interval_95": [
+          5.306432541805889,
+          5.406933859546586
+        ],
+        "paths": 100000,
+        "independent_samples": 100000,
+        "seed": 7,
+        "measure": "risk-neutral Q",
+        "observation_times_years": [
+          0.08333333333333333,
+          0.16666666666666666,
+          0.25,
+          0.3333333333333333,
+          0.41666666666666663,
+          0.5,
+          0.5833333333333333,
+          0.6666666666666666,
+          0.75,
+          0.8333333333333333,
+          0.9166666666666666,
+          1.0
+        ],
+        "sampling_unit": "one independent simulated path"
+      },
+      "checks": {
+        "t0_excluded_from_average": true,
+        "twelve_monthly_observations": true,
+        "standard_error_positive": true,
+        "ci_contains_sample_mean": true
+      },
+      "conventions": [
+        "Arithmetic Asian call; 12 equally spaced monthly GBM observations EXCLUDE t=0.",
+        "Risk-neutral drift r, zero dividend yield, discount once at maturity.",
+        "NumPy default_rng(seed=7); row-major matrix (paths, steps); one independent path is one sampling unit.",
+        "Sample SD uses ddof=1; SE=SD/sqrt(paths); approximate normal 95% CI uses 1.96 SE."
+      ],
+      "limitations": [
+        "Original constant-volatility GBM teaching calculation; no calibrated smile, issuer/funding adjustment or live quote.",
+        "Sampling interval is fixed by the contract; a Monte Carlo CI does not cover model or input error."
+      ],
+      "assumptions": [
+        "Dividend yield assumed zero; the original starter leaves the random matrix layout unspecified, now stated explicitly."
+      ],
+      "execution_mode": "authored_fixed_reference; no learner code executed",
+      "solution": "# Standalone authored TPL practice reference. No learner code is executed by the service.\nfrom __future__ import annotations\nimport json\nimport math\nimport statistics\n\ndef _number(value, label, low, high):\n    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:\n        raise ValueError(f'{label} must be a finite number in [{low}, {high}].')\n    return float(value)\n\ndef _cdf(x):\n    return .5 * (1 + math.erf(x / math.sqrt(2)))\n\ndef _bsm(spot, strike, rate, vol, maturity, dividend=0):\n    s=_number(spot,'spot',1e-9,1e9);k=_number(strike,'strike',1e-9,1e9)\n    t=_number(maturity,'maturity',1e-9,30);v=_number(vol,'volatility',1e-9,5)\n    r=_number(rate,'rate',-1,1);q=_number(dividend,'dividend',-1,1)\n    d1=(math.log(s/k)+(r-q+v*v/2)*t)/(v*math.sqrt(t));d2=d1-v*math.sqrt(t)\n    call=s*math.exp(-q*t)*_cdf(d1)-k*math.exp(-r*t)*_cdf(d2)\n    put=k*math.exp(-r*t)*_cdf(-d2)-s*math.exp(-q*t)*_cdf(-d1)\n    phi=math.exp(-d1*d1/2)/math.sqrt(2*math.pi)\n    return {'call':call,'put':put,'d1':d1,'d2':d2,\n            'delta':math.exp(-q*t)*_cdf(d1),'vega_per_unit_vol':s*math.exp(-q*t)*phi*math.sqrt(t)}\n\ndef _newton_iv(target, spot, strike, rate, maturity, guess=.2, tolerance=1e-10, max_iterations=20):\n    target=_number(target,'market price',0,1e9)\n    lower=max(0,spot-strike*math.exp(-rate*maturity));upper=spot\n    if not lower < target < upper:raise ValueError('Target is outside the strict European call price bounds.')\n    lo,hi=1e-8,5.0;sigma=_number(guess,'initial guess',lo,hi);trace=[];fallbacks=0\n    for index in range(max_iterations):\n        value=_bsm(spot,strike,rate,sigma,maturity);error=value['call']-target\n        trace.append({'evaluation':index+1,'sigma':sigma,'call_price':value['call'],'price_error':error,\n                      'vega_per_unit_vol':value['vega_per_unit_vol']})\n        if abs(error)<=tolerance:\n            return {'volatility':sigma,'converged':True,'price_evaluations':len(trace),'newton_updates':len(trace)-1,\n                    'price_error':error,'repriced_call':value['call'],'fallback_steps':fallbacks,'trace':trace}\n        if error>0:hi=sigma\n        else:lo=sigma\n        candidate=sigma-error/value['vega_per_unit_vol'] if value['vega_per_unit_vol']>1e-12 else float('nan')\n        if not math.isfinite(candidate) or not lo<candidate<hi:\n            candidate=(lo+hi)/2;fallbacks+=1\n        sigma=candidate\n    raise ValueError('Implied volatility did not converge within the bounded iteration budget.')\n\ndef _barrier_cashflow(spot,strike,barrier,notional,previously_touched=False):\n    knocked_out=previously_touched or spot<=barrier\n    return knocked_out,0.0 if knocked_out else max(spot-strike,0)*notional\n\ndef _solve_asian(t):\n    import numpy as np\n    paths=t['paths'];steps=t['steps']\n    if type(paths) is not int or not 2<=paths<=100000 or type(steps) is not int or not 1<=steps<=12:\n        raise ValueError('Reference budget: 2..100000 independent paths, 1..12 observations.')\n    s=_number(t['spot'],'spot',1e-8,1e6);k=_number(t['strike'],'strike',1e-8,1e6)\n    r=_number(t['rate'],'rate',-.2,.5);vol=_number(t['volatility'],'volatility',0,2);maturity=_number(t['maturity_years'],'maturity',1e-8,10)\n    dt=maturity/steps;rng=np.random.default_rng(t['seed'])\n    # Row-major: each row is one independent path, columns are monthly shocks.\n    z=rng.standard_normal((paths,steps))\n    spots=s*np.exp(np.cumsum((r-.5*vol*vol)*dt+vol*math.sqrt(dt)*z,axis=1))\n    averages=spots.mean(axis=1);discounted=math.exp(-r*maturity)*np.maximum(averages-k,0)\n    price=float(discounted.mean());sample_std=float(discounted.std(ddof=1));se=sample_std/math.sqrt(paths)\n    return {'price':price,'price_unit':'currency per underlying unit','standard_error':se,\n            'sample_std_discounted_payoff':sample_std,'confidence_interval_95':[price-1.96*se,price+1.96*se],\n            'paths':paths,'independent_samples':paths,'seed':t['seed'],'measure':'risk-neutral Q',\n            'observation_times_years':[(i+1)*dt for i in range(steps)],'sampling_unit':'one independent simulated path',\n            'checks':{'t0_excluded_from_average':True,'twelve_monthly_observations':steps==12,\n                      'standard_error_positive':se>0,'ci_contains_sample_mean':price-1.96*se<=price<=price+1.96*se}}\n\ndef _pack_reference(exercise_id,ticket,result,conventions,limitations,assumptions):\n    result=dict(result);checks=result.pop('checks')\n    return {'schema_version':'tpl.practice-reference.v1','id':exercise_id,'ticket':ticket,'result':result,\n            'checks':checks,'conventions':conventions,'limitations':limitations,'assumptions':assumptions,\n            'execution_mode':'authored_fixed_reference; no learner code executed'}\n\nREFERENCE_ID = json.loads('\"mc-asian\"')\nTICKET = json.loads('{\"spot\": 100, \"strike\": 100, \"rate\": 0.02, \"volatility\": 0.2, \"maturity_years\": 1, \"steps\": 12, \"paths\": 100000, \"seed\": 7}')\nCONVENTIONS = json.loads('[\"Arithmetic Asian call; 12 equally spaced monthly GBM observations EXCLUDE t=0.\", \"Risk-neutral drift r, zero dividend yield, discount once at maturity.\", \"NumPy default_rng(seed=7); row-major matrix (paths, steps); one independent path is one sampling unit.\", \"Sample SD uses ddof=1; SE=SD/sqrt(paths); approximate normal 95% CI uses 1.96 SE.\"]')\nLIMITATIONS = json.loads('[\"Original constant-volatility GBM teaching calculation; no calibrated smile, issuer/funding adjustment or live quote.\", \"Sampling interval is fixed by the contract; a Monte Carlo CI does not cover model or input error.\"]')\nASSUMPTIONS = json.loads('[\"Dividend yield assumed zero; the original starter leaves the random matrix layout unspecified, now stated explicitly.\"]')\n\nif __name__ == \"__main__\":\n    result = _pack_reference(REFERENCE_ID, TICKET, _solve_asian(TICKET), CONVENTIONS, LIMITATIONS, ASSUMPTIONS)\n    print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))\n",
+      "output": "{\n  \"assumptions\": [\n    \"Dividend yield assumed zero; the original starter leaves the random matrix layout unspecified, now stated explicitly.\"\n  ],\n  \"checks\": {\n    \"ci_contains_sample_mean\": true,\n    \"standard_error_positive\": true,\n    \"t0_excluded_from_average\": true,\n    \"twelve_monthly_observations\": true\n  },\n  \"conventions\": [\n    \"Arithmetic Asian call; 12 equally spaced monthly GBM observations EXCLUDE t=0.\",\n    \"Risk-neutral drift r, zero dividend yield, discount once at maturity.\",\n    \"NumPy default_rng(seed=7); row-major matrix (paths, steps); one independent path is one sampling unit.\",\n    \"Sample SD uses ddof=1; SE=SD/sqrt(paths); approximate normal 95% CI uses 1.96 SE.\"\n  ],\n  \"execution_mode\": \"authored_fixed_reference; no learner code executed\",\n  \"id\": \"mc-asian\",\n  \"limitations\": [\n    \"Original constant-volatility GBM teaching calculation; no calibrated smile, issuer/funding adjustment or live quote.\",\n    \"Sampling interval is fixed by the contract; a Monte Carlo CI does not cover model or input error.\"\n  ],\n  \"result\": {\n    \"confidence_interval_95\": [\n      5.306432541805889,\n      5.406933859546586\n    ],\n    \"independent_samples\": 100000,\n    \"measure\": \"risk-neutral Q\",\n    \"observation_times_years\": [\n      0.08333333333333333,\n      0.16666666666666666,\n      0.25,\n      0.3333333333333333,\n      0.41666666666666663,\n      0.5,\n      0.5833333333333333,\n      0.6666666666666666,\n      0.75,\n      0.8333333333333333,\n      0.9166666666666666,\n      1.0\n    ],\n    \"paths\": 100000,\n    \"price\": 5.356683200676238,\n    \"price_unit\": \"currency per underlying unit\",\n    \"sample_std_discounted_payoff\": 8.107476324206353,\n    \"sampling_unit\": \"one independent simulated path\",\n    \"seed\": 7,\n    \"standard_error\": 0.025638091260381794\n  },\n  \"schema_version\": \"tpl.practice-reference.v1\",\n  \"ticket\": {\n    \"maturity_years\": 1,\n    \"paths\": 100000,\n    \"rate\": 0.02,\n    \"seed\": 7,\n    \"spot\": 100,\n    \"steps\": 12,\n    \"strike\": 100,\n    \"volatility\": 0.2\n  }\n}",
+      "dependencies": [
+        "numpy"
+      ],
+      "python_version": ">=3.10",
+      "output_format": "JSON actually produced by the standalone Python reference",
+      "assessment_notice": "A computed reference and self-review aid; no expert reasoning grade or hiring certification."
+    },
+    {
+      "schema_version": "tpl.practice-reference.v1",
+      "id": "curve-boot",
+      "ticket": {
+        "swap_rates": [
+          [
+            1,
+            0.03
+          ],
+          [
+            2,
+            0.032
+          ],
+          [
+            3,
+            0.0335
+          ]
+        ]
+      },
+      "result": {
+        "nodes": [
+          {
+            "tenor_years": 1,
+            "par_rate": 0.03,
+            "discount_factor": 0.970873786407767,
+            "zero_rate_continuous": 0.02955880224154439,
+            "repriced_par_rate": 0.029999999999999985,
+            "unit_notional_swap_pv": 0.0
+          },
+          {
+            "tenor_years": 2,
+            "par_rate": 0.032,
+            "discount_factor": 0.9388876345299917,
+            "zero_rate_continuous": 0.031529735985794255,
+            "repriced_par_rate": 0.032000000000000015,
+            "unit_notional_swap_pv": 0.0
+          },
+          {
+            "tenor_years": 3,
+            "par_rate": 0.0335,
+            "discount_factor": 0.9056826244785535,
+            "zero_rate_continuous": 0.03302211280584371,
+            "repriced_par_rate": 0.0335,
+            "unit_notional_swap_pv": 0.0
+          }
+        ],
+        "payment_interval_years": 1
+      },
+      "checks": {
+        "all_discount_factors_positive": true,
+        "discount_factors_decrease": true,
+        "all_instruments_reprice": true
+      },
+      "conventions": [
+        "Single discount/forward curve, spot start, annual fixed coupons with accrual factor 1 and unit notional.",
+        "DF_n=(1-par_n*sum(previous_DFs))/(1+par_n); floating leg PV=1-DF_n."
+      ],
+      "limitations": [
+        "No market dates, business-day rules, multicurve basis or off-node interpolation are supplied.",
+        "Positive decreasing DFs are diagnostic controls, not complete market-data validation."
+      ],
+      "assumptions": [],
+      "execution_mode": "authored_fixed_reference; no learner code executed",
+      "solution": "# Standalone authored TPL practice reference. No learner code is executed by the service.\nfrom __future__ import annotations\nimport json\nimport math\nimport statistics\n\ndef _number(value, label, low, high):\n    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:\n        raise ValueError(f'{label} must be a finite number in [{low}, {high}].')\n    return float(value)\n\ndef _cdf(x):\n    return .5 * (1 + math.erf(x / math.sqrt(2)))\n\ndef _bsm(spot, strike, rate, vol, maturity, dividend=0):\n    s=_number(spot,'spot',1e-9,1e9);k=_number(strike,'strike',1e-9,1e9)\n    t=_number(maturity,'maturity',1e-9,30);v=_number(vol,'volatility',1e-9,5)\n    r=_number(rate,'rate',-1,1);q=_number(dividend,'dividend',-1,1)\n    d1=(math.log(s/k)+(r-q+v*v/2)*t)/(v*math.sqrt(t));d2=d1-v*math.sqrt(t)\n    call=s*math.exp(-q*t)*_cdf(d1)-k*math.exp(-r*t)*_cdf(d2)\n    put=k*math.exp(-r*t)*_cdf(-d2)-s*math.exp(-q*t)*_cdf(-d1)\n    phi=math.exp(-d1*d1/2)/math.sqrt(2*math.pi)\n    return {'call':call,'put':put,'d1':d1,'d2':d2,\n            'delta':math.exp(-q*t)*_cdf(d1),'vega_per_unit_vol':s*math.exp(-q*t)*phi*math.sqrt(t)}\n\ndef _newton_iv(target, spot, strike, rate, maturity, guess=.2, tolerance=1e-10, max_iterations=20):\n    target=_number(target,'market price',0,1e9)\n    lower=max(0,spot-strike*math.exp(-rate*maturity));upper=spot\n    if not lower < target < upper:raise ValueError('Target is outside the strict European call price bounds.')\n    lo,hi=1e-8,5.0;sigma=_number(guess,'initial guess',lo,hi);trace=[];fallbacks=0\n    for index in range(max_iterations):\n        value=_bsm(spot,strike,rate,sigma,maturity);error=value['call']-target\n        trace.append({'evaluation':index+1,'sigma':sigma,'call_price':value['call'],'price_error':error,\n                      'vega_per_unit_vol':value['vega_per_unit_vol']})\n        if abs(error)<=tolerance:\n            return {'volatility':sigma,'converged':True,'price_evaluations':len(trace),'newton_updates':len(trace)-1,\n                    'price_error':error,'repriced_call':value['call'],'fallback_steps':fallbacks,'trace':trace}\n        if error>0:hi=sigma\n        else:lo=sigma\n        candidate=sigma-error/value['vega_per_unit_vol'] if value['vega_per_unit_vol']>1e-12 else float('nan')\n        if not math.isfinite(candidate) or not lo<candidate<hi:\n            candidate=(lo+hi)/2;fallbacks+=1\n        sigma=candidate\n    raise ValueError('Implied volatility did not converge within the bounded iteration budget.')\n\ndef _barrier_cashflow(spot,strike,barrier,notional,previously_touched=False):\n    knocked_out=previously_touched or spot<=barrier\n    return knocked_out,0.0 if knocked_out else max(spot-strike,0)*notional\n\ndef _solve_curve(t):\n    dfs={};records=[]\n    for years,rate in t['swap_rates']:\n        prior=sum(dfs.values());df=(1-rate*prior)/(1+rate);dfs[years]=df\n        annuity=sum(dfs.values());repriced=(1-df)/annuity\n        records.append({'tenor_years':years,'par_rate':rate,'discount_factor':df,\n                        'zero_rate_continuous':-math.log(df)/years,'repriced_par_rate':repriced,\n                        'unit_notional_swap_pv':rate*annuity+df-1})\n    discounts=list(dfs.values())\n    return {'nodes':records,'payment_interval_years':1,\n            'checks':{'all_discount_factors_positive':all(v>0 for v in discounts),\n                      'discount_factors_decrease':all(a>b for a,b in zip([1]+discounts,discounts)),\n                      'all_instruments_reprice':all(abs(p['unit_notional_swap_pv'])<1e-12 for p in records)}}\n\ndef _pack_reference(exercise_id,ticket,result,conventions,limitations,assumptions):\n    result=dict(result);checks=result.pop('checks')\n    return {'schema_version':'tpl.practice-reference.v1','id':exercise_id,'ticket':ticket,'result':result,\n            'checks':checks,'conventions':conventions,'limitations':limitations,'assumptions':assumptions,\n            'execution_mode':'authored_fixed_reference; no learner code executed'}\n\nREFERENCE_ID = json.loads('\"curve-boot\"')\nTICKET = json.loads('{\"swap_rates\": [[1, 0.03], [2, 0.032], [3, 0.0335]]}')\nCONVENTIONS = json.loads('[\"Single discount/forward curve, spot start, annual fixed coupons with accrual factor 1 and unit notional.\", \"DF_n=(1-par_n*sum(previous_DFs))/(1+par_n); floating leg PV=1-DF_n.\"]')\nLIMITATIONS = json.loads('[\"No market dates, business-day rules, multicurve basis or off-node interpolation are supplied.\", \"Positive decreasing DFs are diagnostic controls, not complete market-data validation.\"]')\nASSUMPTIONS = json.loads('[]')\n\nif __name__ == \"__main__\":\n    result = _pack_reference(REFERENCE_ID, TICKET, _solve_curve(TICKET), CONVENTIONS, LIMITATIONS, ASSUMPTIONS)\n    print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))\n",
+      "output": "{\n  \"assumptions\": [],\n  \"checks\": {\n    \"all_discount_factors_positive\": true,\n    \"all_instruments_reprice\": true,\n    \"discount_factors_decrease\": true\n  },\n  \"conventions\": [\n    \"Single discount/forward curve, spot start, annual fixed coupons with accrual factor 1 and unit notional.\",\n    \"DF_n=(1-par_n*sum(previous_DFs))/(1+par_n); floating leg PV=1-DF_n.\"\n  ],\n  \"execution_mode\": \"authored_fixed_reference; no learner code executed\",\n  \"id\": \"curve-boot\",\n  \"limitations\": [\n    \"No market dates, business-day rules, multicurve basis or off-node interpolation are supplied.\",\n    \"Positive decreasing DFs are diagnostic controls, not complete market-data validation.\"\n  ],\n  \"result\": {\n    \"nodes\": [\n      {\n        \"discount_factor\": 0.970873786407767,\n        \"par_rate\": 0.03,\n        \"repriced_par_rate\": 0.029999999999999985,\n        \"tenor_years\": 1,\n        \"unit_notional_swap_pv\": 0.0,\n        \"zero_rate_continuous\": 0.02955880224154439\n      },\n      {\n        \"discount_factor\": 0.9388876345299917,\n        \"par_rate\": 0.032,\n        \"repriced_par_rate\": 0.032000000000000015,\n        \"tenor_years\": 2,\n        \"unit_notional_swap_pv\": 0.0,\n        \"zero_rate_continuous\": 0.031529735985794255\n      },\n      {\n        \"discount_factor\": 0.9056826244785535,\n        \"par_rate\": 0.0335,\n        \"repriced_par_rate\": 0.0335,\n        \"tenor_years\": 3,\n        \"unit_notional_swap_pv\": 0.0,\n        \"zero_rate_continuous\": 0.03302211280584371\n      }\n    ],\n    \"payment_interval_years\": 1\n  },\n  \"schema_version\": \"tpl.practice-reference.v1\",\n  \"ticket\": {\n    \"swap_rates\": [\n      [\n        1,\n        0.03\n      ],\n      [\n        2,\n        0.032\n      ],\n      [\n        3,\n        0.0335\n      ]\n    ]\n  }\n}",
+      "dependencies": [],
+      "python_version": ">=3.10",
+      "output_format": "JSON actually produced by the standalone Python reference",
+      "assessment_notice": "A computed reference and self-review aid; no expert reasoning grade or hiring certification."
+    },
+    {
+      "schema_version": "tpl.practice-reference.v1",
+      "id": "delta-hedge",
+      "ticket": {
+        "contracts": 1000,
+        "multiplier": 100,
+        "delta_initial": 0.54,
+        "delta_next": 0.61
+      },
+      "result": {
+        "option_delta_initial_shares": 54000.0,
+        "option_delta_next_shares": 61000.0,
+        "initial_hedge_shares": -54000.0,
+        "new_target_hedge_shares": -61000.0,
+        "rebalance_trade_shares": -7000.0,
+        "trade_sign_convention": "positive=buy; negative=sell"
+      },
+      "checks": {
+        "initial_delta_neutral": true,
+        "rebalanced_delta_neutral": true,
+        "sell_additional_shares_when_long_call_delta_rises": true
+      },
+      "conventions": [
+        "Long 1000 call contracts, 100 underlying shares per contract.",
+        "Signed underlying trade: positive buys, negative sells.",
+        "The supplied deltas are inputs; they are not recomputed or invented."
+      ],
+      "limitations": [
+        "Delta-neutral at the specified instants only; gamma, discrete execution, funding and transaction costs remain."
+      ],
+      "assumptions": [],
+      "execution_mode": "authored_fixed_reference; no learner code executed",
+      "solution": "# Standalone authored TPL practice reference. No learner code is executed by the service.\nfrom __future__ import annotations\nimport json\nimport math\nimport statistics\n\ndef _number(value, label, low, high):\n    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:\n        raise ValueError(f'{label} must be a finite number in [{low}, {high}].')\n    return float(value)\n\ndef _cdf(x):\n    return .5 * (1 + math.erf(x / math.sqrt(2)))\n\ndef _bsm(spot, strike, rate, vol, maturity, dividend=0):\n    s=_number(spot,'spot',1e-9,1e9);k=_number(strike,'strike',1e-9,1e9)\n    t=_number(maturity,'maturity',1e-9,30);v=_number(vol,'volatility',1e-9,5)\n    r=_number(rate,'rate',-1,1);q=_number(dividend,'dividend',-1,1)\n    d1=(math.log(s/k)+(r-q+v*v/2)*t)/(v*math.sqrt(t));d2=d1-v*math.sqrt(t)\n    call=s*math.exp(-q*t)*_cdf(d1)-k*math.exp(-r*t)*_cdf(d2)\n    put=k*math.exp(-r*t)*_cdf(-d2)-s*math.exp(-q*t)*_cdf(-d1)\n    phi=math.exp(-d1*d1/2)/math.sqrt(2*math.pi)\n    return {'call':call,'put':put,'d1':d1,'d2':d2,\n            'delta':math.exp(-q*t)*_cdf(d1),'vega_per_unit_vol':s*math.exp(-q*t)*phi*math.sqrt(t)}\n\ndef _newton_iv(target, spot, strike, rate, maturity, guess=.2, tolerance=1e-10, max_iterations=20):\n    target=_number(target,'market price',0,1e9)\n    lower=max(0,spot-strike*math.exp(-rate*maturity));upper=spot\n    if not lower < target < upper:raise ValueError('Target is outside the strict European call price bounds.')\n    lo,hi=1e-8,5.0;sigma=_number(guess,'initial guess',lo,hi);trace=[];fallbacks=0\n    for index in range(max_iterations):\n        value=_bsm(spot,strike,rate,sigma,maturity);error=value['call']-target\n        trace.append({'evaluation':index+1,'sigma':sigma,'call_price':value['call'],'price_error':error,\n                      'vega_per_unit_vol':value['vega_per_unit_vol']})\n        if abs(error)<=tolerance:\n            return {'volatility':sigma,'converged':True,'price_evaluations':len(trace),'newton_updates':len(trace)-1,\n                    'price_error':error,'repriced_call':value['call'],'fallback_steps':fallbacks,'trace':trace}\n        if error>0:hi=sigma\n        else:lo=sigma\n        candidate=sigma-error/value['vega_per_unit_vol'] if value['vega_per_unit_vol']>1e-12 else float('nan')\n        if not math.isfinite(candidate) or not lo<candidate<hi:\n            candidate=(lo+hi)/2;fallbacks+=1\n        sigma=candidate\n    raise ValueError('Implied volatility did not converge within the bounded iteration budget.')\n\ndef _barrier_cashflow(spot,strike,barrier,notional,previously_touched=False):\n    knocked_out=previously_touched or spot<=barrier\n    return knocked_out,0.0 if knocked_out else max(spot-strike,0)*notional\n\ndef _solve_delta(t):\n    option0=t['contracts']*t['multiplier']*t['delta_initial'];option1=t['contracts']*t['multiplier']*t['delta_next']\n    hedge0=-option0;hedge1=-option1;trade=hedge1-hedge0\n    return {'option_delta_initial_shares':option0,'option_delta_next_shares':option1,'initial_hedge_shares':hedge0,\n            'new_target_hedge_shares':hedge1,'rebalance_trade_shares':trade,'trade_sign_convention':'positive=buy; negative=sell',\n            'checks':{'initial_delta_neutral':abs(option0+hedge0)<1e-10,'rebalanced_delta_neutral':abs(option1+hedge0+trade)<1e-10,\n                      'sell_additional_shares_when_long_call_delta_rises':trade<0}}\n\ndef _pack_reference(exercise_id,ticket,result,conventions,limitations,assumptions):\n    result=dict(result);checks=result.pop('checks')\n    return {'schema_version':'tpl.practice-reference.v1','id':exercise_id,'ticket':ticket,'result':result,\n            'checks':checks,'conventions':conventions,'limitations':limitations,'assumptions':assumptions,\n            'execution_mode':'authored_fixed_reference; no learner code executed'}\n\nREFERENCE_ID = json.loads('\"delta-hedge\"')\nTICKET = json.loads('{\"contracts\": 1000, \"multiplier\": 100, \"delta_initial\": 0.54, \"delta_next\": 0.61}')\nCONVENTIONS = json.loads('[\"Long 1000 call contracts, 100 underlying shares per contract.\", \"Signed underlying trade: positive buys, negative sells.\", \"The supplied deltas are inputs; they are not recomputed or invented.\"]')\nLIMITATIONS = json.loads('[\"Delta-neutral at the specified instants only; gamma, discrete execution, funding and transaction costs remain.\"]')\nASSUMPTIONS = json.loads('[]')\n\nif __name__ == \"__main__\":\n    result = _pack_reference(REFERENCE_ID, TICKET, _solve_delta(TICKET), CONVENTIONS, LIMITATIONS, ASSUMPTIONS)\n    print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))\n",
+      "output": "{\n  \"assumptions\": [],\n  \"checks\": {\n    \"initial_delta_neutral\": true,\n    \"rebalanced_delta_neutral\": true,\n    \"sell_additional_shares_when_long_call_delta_rises\": true\n  },\n  \"conventions\": [\n    \"Long 1000 call contracts, 100 underlying shares per contract.\",\n    \"Signed underlying trade: positive buys, negative sells.\",\n    \"The supplied deltas are inputs; they are not recomputed or invented.\"\n  ],\n  \"execution_mode\": \"authored_fixed_reference; no learner code executed\",\n  \"id\": \"delta-hedge\",\n  \"limitations\": [\n    \"Delta-neutral at the specified instants only; gamma, discrete execution, funding and transaction costs remain.\"\n  ],\n  \"result\": {\n    \"initial_hedge_shares\": -54000.0,\n    \"new_target_hedge_shares\": -61000.0,\n    \"option_delta_initial_shares\": 54000.0,\n    \"option_delta_next_shares\": 61000.0,\n    \"rebalance_trade_shares\": -7000.0,\n    \"trade_sign_convention\": \"positive=buy; negative=sell\"\n  },\n  \"schema_version\": \"tpl.practice-reference.v1\",\n  \"ticket\": {\n    \"contracts\": 1000,\n    \"delta_initial\": 0.54,\n    \"delta_next\": 0.61,\n    \"multiplier\": 100\n  }\n}",
+      "dependencies": [],
+      "python_version": ">=3.10",
+      "output_format": "JSON actually produced by the standalone Python reference",
+      "assessment_notice": "A computed reference and self-review aid; no expert reasoning grade or hiring certification."
+    },
+    {
+      "schema_version": "tpl.practice-reference.v1",
+      "id": "iv-newton",
+      "ticket": {
+        "market_call_price": 8,
+        "spot": 100,
+        "strike": 100,
+        "rate": 0.02,
+        "maturity_years": 0.5,
+        "initial_guess": 0.2,
+        "tolerance": 1e-10,
+        "max_iterations": 20
+      },
+      "result": {
+        "volatility": 0.2673112393864625,
+        "converged": true,
+        "price_evaluations": 4,
+        "newton_updates": 3,
+        "price_error": 7.105427357601002e-15,
+        "repriced_call": 8.000000000000007,
+        "fallback_steps": 0,
+        "trace": [
+          {
+            "evaluation": 1,
+            "sigma": 0.2,
+            "call_price": 6.120654113455842,
+            "price_error": -1.879345886544158,
+            "vega_per_unit_vol": 27.928790169723428
+          },
+          {
+            "evaluation": 2,
+            "sigma": 0.26729063003171144,
+            "call_price": 7.9994249034422396,
+            "price_error": -0.0005750965577604461,
+            "vega_per_unit_vol": 27.904643335766906
+          },
+          {
+            "evaluation": 3,
+            "sigma": 0.2673112393815906,
+            "call_price": 7.999999999864052,
+            "price_error": -1.3594814163297997e-10,
+            "vega_per_unit_vol": 27.90463014268543
+          },
+          {
+            "evaluation": 4,
+            "sigma": 0.2673112393864625,
+            "call_price": 8.000000000000007,
+            "price_error": 7.105427357601002e-15,
+            "vega_per_unit_vol": 27.90463014268231
+          }
+        ],
+        "volatility_percent": 26.73112393864625,
+        "vega_unit": "price per volatility 1.0, not per vol percentage point",
+        "method": "Newton-Raphson with finite positive bracket and bisection safeguard"
+      },
+      "checks": {
+        "converged": true,
+        "target_price_reproduced": true,
+        "within_iteration_budget": true
+      },
+      "conventions": [
+        "European call BSM, continuous annual rate, annualized volatility decimal and zero dividends.",
+        "Newton uses vega per volatility 1.0, not vega per volatility percentage point.",
+        "Positive [1e-8,5] bracket; bisection safeguards an invalid/low-vega Newton step; iterations count price evaluations."
+      ],
+      "limitations": [
+        "Flat volatility inversion is not a live quote. Impossible prices fail; very low vega and boundary prices need care."
+      ],
+      "assumptions": [
+        "Dividend yield assumed zero because the brief does not supply it."
+      ],
+      "execution_mode": "authored_fixed_reference; no learner code executed",
+      "solution": "# Standalone authored TPL practice reference. No learner code is executed by the service.\nfrom __future__ import annotations\nimport json\nimport math\nimport statistics\n\ndef _number(value, label, low, high):\n    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:\n        raise ValueError(f'{label} must be a finite number in [{low}, {high}].')\n    return float(value)\n\ndef _cdf(x):\n    return .5 * (1 + math.erf(x / math.sqrt(2)))\n\ndef _bsm(spot, strike, rate, vol, maturity, dividend=0):\n    s=_number(spot,'spot',1e-9,1e9);k=_number(strike,'strike',1e-9,1e9)\n    t=_number(maturity,'maturity',1e-9,30);v=_number(vol,'volatility',1e-9,5)\n    r=_number(rate,'rate',-1,1);q=_number(dividend,'dividend',-1,1)\n    d1=(math.log(s/k)+(r-q+v*v/2)*t)/(v*math.sqrt(t));d2=d1-v*math.sqrt(t)\n    call=s*math.exp(-q*t)*_cdf(d1)-k*math.exp(-r*t)*_cdf(d2)\n    put=k*math.exp(-r*t)*_cdf(-d2)-s*math.exp(-q*t)*_cdf(-d1)\n    phi=math.exp(-d1*d1/2)/math.sqrt(2*math.pi)\n    return {'call':call,'put':put,'d1':d1,'d2':d2,\n            'delta':math.exp(-q*t)*_cdf(d1),'vega_per_unit_vol':s*math.exp(-q*t)*phi*math.sqrt(t)}\n\ndef _newton_iv(target, spot, strike, rate, maturity, guess=.2, tolerance=1e-10, max_iterations=20):\n    target=_number(target,'market price',0,1e9)\n    lower=max(0,spot-strike*math.exp(-rate*maturity));upper=spot\n    if not lower < target < upper:raise ValueError('Target is outside the strict European call price bounds.')\n    lo,hi=1e-8,5.0;sigma=_number(guess,'initial guess',lo,hi);trace=[];fallbacks=0\n    for index in range(max_iterations):\n        value=_bsm(spot,strike,rate,sigma,maturity);error=value['call']-target\n        trace.append({'evaluation':index+1,'sigma':sigma,'call_price':value['call'],'price_error':error,\n                      'vega_per_unit_vol':value['vega_per_unit_vol']})\n        if abs(error)<=tolerance:\n            return {'volatility':sigma,'converged':True,'price_evaluations':len(trace),'newton_updates':len(trace)-1,\n                    'price_error':error,'repriced_call':value['call'],'fallback_steps':fallbacks,'trace':trace}\n        if error>0:hi=sigma\n        else:lo=sigma\n        candidate=sigma-error/value['vega_per_unit_vol'] if value['vega_per_unit_vol']>1e-12 else float('nan')\n        if not math.isfinite(candidate) or not lo<candidate<hi:\n            candidate=(lo+hi)/2;fallbacks+=1\n        sigma=candidate\n    raise ValueError('Implied volatility did not converge within the bounded iteration budget.')\n\ndef _barrier_cashflow(spot,strike,barrier,notional,previously_touched=False):\n    knocked_out=previously_touched or spot<=barrier\n    return knocked_out,0.0 if knocked_out else max(spot-strike,0)*notional\n\ndef _solve_iv(t):\n    solved=_newton_iv(t['market_call_price'],t['spot'],t['strike'],t['rate'],t['maturity_years'],t['initial_guess'],t['tolerance'],t['max_iterations'])\n    return {**solved,'volatility_percent':100*solved['volatility'],'vega_unit':'price per volatility 1.0, not per vol percentage point',\n            'method':'Newton-Raphson with finite positive bracket and bisection safeguard',\n            'checks':{'converged':solved['converged'],'target_price_reproduced':abs(solved['price_error'])<=t['tolerance'],\n                      'within_iteration_budget':solved['price_evaluations']<=t['max_iterations']}}\n\ndef _pack_reference(exercise_id,ticket,result,conventions,limitations,assumptions):\n    result=dict(result);checks=result.pop('checks')\n    return {'schema_version':'tpl.practice-reference.v1','id':exercise_id,'ticket':ticket,'result':result,\n            'checks':checks,'conventions':conventions,'limitations':limitations,'assumptions':assumptions,\n            'execution_mode':'authored_fixed_reference; no learner code executed'}\n\nREFERENCE_ID = json.loads('\"iv-newton\"')\nTICKET = json.loads('{\"market_call_price\": 8, \"spot\": 100, \"strike\": 100, \"rate\": 0.02, \"maturity_years\": 0.5, \"initial_guess\": 0.2, \"tolerance\": 1e-10, \"max_iterations\": 20}')\nCONVENTIONS = json.loads('[\"European call BSM, continuous annual rate, annualized volatility decimal and zero dividends.\", \"Newton uses vega per volatility 1.0, not vega per volatility percentage point.\", \"Positive [1e-8,5] bracket; bisection safeguards an invalid/low-vega Newton step; iterations count price evaluations.\"]')\nLIMITATIONS = json.loads('[\"Flat volatility inversion is not a live quote. Impossible prices fail; very low vega and boundary prices need care.\"]')\nASSUMPTIONS = json.loads('[\"Dividend yield assumed zero because the brief does not supply it.\"]')\n\nif __name__ == \"__main__\":\n    result = _pack_reference(REFERENCE_ID, TICKET, _solve_iv(TICKET), CONVENTIONS, LIMITATIONS, ASSUMPTIONS)\n    print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))\n",
+      "output": "{\n  \"assumptions\": [\n    \"Dividend yield assumed zero because the brief does not supply it.\"\n  ],\n  \"checks\": {\n    \"converged\": true,\n    \"target_price_reproduced\": true,\n    \"within_iteration_budget\": true\n  },\n  \"conventions\": [\n    \"European call BSM, continuous annual rate, annualized volatility decimal and zero dividends.\",\n    \"Newton uses vega per volatility 1.0, not vega per volatility percentage point.\",\n    \"Positive [1e-8,5] bracket; bisection safeguards an invalid/low-vega Newton step; iterations count price evaluations.\"\n  ],\n  \"execution_mode\": \"authored_fixed_reference; no learner code executed\",\n  \"id\": \"iv-newton\",\n  \"limitations\": [\n    \"Flat volatility inversion is not a live quote. Impossible prices fail; very low vega and boundary prices need care.\"\n  ],\n  \"result\": {\n    \"converged\": true,\n    \"fallback_steps\": 0,\n    \"method\": \"Newton-Raphson with finite positive bracket and bisection safeguard\",\n    \"newton_updates\": 3,\n    \"price_error\": 7.105427357601002e-15,\n    \"price_evaluations\": 4,\n    \"repriced_call\": 8.000000000000007,\n    \"trace\": [\n      {\n        \"call_price\": 6.120654113455842,\n        \"evaluation\": 1,\n        \"price_error\": -1.879345886544158,\n        \"sigma\": 0.2,\n        \"vega_per_unit_vol\": 27.928790169723428\n      },\n      {\n        \"call_price\": 7.9994249034422396,\n        \"evaluation\": 2,\n        \"price_error\": -0.0005750965577604461,\n        \"sigma\": 0.26729063003171144,\n        \"vega_per_unit_vol\": 27.904643335766906\n      },\n      {\n        \"call_price\": 7.999999999864052,\n        \"evaluation\": 3,\n        \"price_error\": -1.3594814163297997e-10,\n        \"sigma\": 0.2673112393815906,\n        \"vega_per_unit_vol\": 27.90463014268543\n      },\n      {\n        \"call_price\": 8.000000000000007,\n        \"evaluation\": 4,\n        \"price_error\": 7.105427357601002e-15,\n        \"sigma\": 0.2673112393864625,\n        \"vega_per_unit_vol\": 27.90463014268231\n      }\n    ],\n    \"vega_unit\": \"price per volatility 1.0, not per vol percentage point\",\n    \"volatility\": 0.2673112393864625,\n    \"volatility_percent\": 26.73112393864625\n  },\n  \"schema_version\": \"tpl.practice-reference.v1\",\n  \"ticket\": {\n    \"initial_guess\": 0.2,\n    \"market_call_price\": 8,\n    \"maturity_years\": 0.5,\n    \"max_iterations\": 20,\n    \"rate\": 0.02,\n    \"spot\": 100,\n    \"strike\": 100,\n    \"tolerance\": 1e-10\n  }\n}",
+      "dependencies": [],
+      "python_version": ">=3.10",
+      "output_format": "JSON actually produced by the standalone Python reference",
+      "assessment_notice": "A computed reference and self-review aid; no expert reasoning grade or hiring certification."
+    },
+    {
+      "schema_version": "tpl.practice-reference.v1",
+      "id": "autocall",
+      "ticket": {
+        "principal": 100,
+        "annual_coupon_rate": 0.08,
+        "observations_per_year": 4,
+        "quarters": 8,
+        "autocall_level": 1,
+        "coupon_barrier": 0.7,
+        "protection_barrier": 0.6,
+        "paths": {
+          "up": [
+            1.02,
+            1.04,
+            1.06,
+            1.08,
+            1.1,
+            1.12,
+            1.14,
+            1.16
+          ],
+          "flat": [
+            0.95,
+            0.99,
+            1.01,
+            0.98,
+            1.02,
+            1.03,
+            1.01,
+            1.05
+          ],
+          "down": [
+            0.82,
+            0.68,
+            0.55,
+            0.62,
+            0.74,
+            0.69,
+            0.63,
+            0.55
+          ]
+        }
+      },
+      "result": {
+        "principal": 100,
+        "cashflow_unit": "per 100 initial principal; undiscounted",
+        "coupon_per_quarter": 2.0,
+        "coupon_memory": false,
+        "maturity_years": 2.0,
+        "scenarios": [
+          {
+            "name": "up",
+            "observed_quarters": 1,
+            "autocalled": true,
+            "coupon_total": 2.0,
+            "principal_redemption": 100.0,
+            "total_undiscounted_cashflows": 102.0,
+            "cashflows": [
+              {
+                "quarter": 1,
+                "time_years": 0.25,
+                "level": 1.02,
+                "coupon_eligible": true,
+                "coupon": 2.0,
+                "autocalled": true,
+                "redemption": 100,
+                "cashflow": 102.0
+              }
+            ]
+          },
+          {
+            "name": "flat",
+            "observed_quarters": 3,
+            "autocalled": true,
+            "coupon_total": 6.0,
+            "principal_redemption": 100.0,
+            "total_undiscounted_cashflows": 106.0,
+            "cashflows": [
+              {
+                "quarter": 1,
+                "time_years": 0.25,
+                "level": 0.95,
+                "coupon_eligible": true,
+                "coupon": 2.0,
+                "autocalled": false,
+                "redemption": 0.0,
+                "cashflow": 2.0
+              },
+              {
+                "quarter": 2,
+                "time_years": 0.5,
+                "level": 0.99,
+                "coupon_eligible": true,
+                "coupon": 2.0,
+                "autocalled": false,
+                "redemption": 0.0,
+                "cashflow": 2.0
+              },
+              {
+                "quarter": 3,
+                "time_years": 0.75,
+                "level": 1.01,
+                "coupon_eligible": true,
+                "coupon": 2.0,
+                "autocalled": true,
+                "redemption": 100,
+                "cashflow": 102.0
+              }
+            ]
+          },
+          {
+            "name": "down",
+            "observed_quarters": 8,
+            "autocalled": false,
+            "coupon_total": 4.0,
+            "principal_redemption": 55.00000000000001,
+            "total_undiscounted_cashflows": 59.00000000000001,
+            "cashflows": [
+              {
+                "quarter": 1,
+                "time_years": 0.25,
+                "level": 0.82,
+                "coupon_eligible": true,
+                "coupon": 2.0,
+                "autocalled": false,
+                "redemption": 0.0,
+                "cashflow": 2.0
+              },
+              {
+                "quarter": 2,
+                "time_years": 0.5,
+                "level": 0.68,
+                "coupon_eligible": false,
+                "coupon": 0.0,
+                "autocalled": false,
+                "redemption": 0.0,
+                "cashflow": 0.0
+              },
+              {
+                "quarter": 3,
+                "time_years": 0.75,
+                "level": 0.55,
+                "coupon_eligible": false,
+                "coupon": 0.0,
+                "autocalled": false,
+                "redemption": 0.0,
+                "cashflow": 0.0
+              },
+              {
+                "quarter": 4,
+                "time_years": 1.0,
+                "level": 0.62,
+                "coupon_eligible": false,
+                "coupon": 0.0,
+                "autocalled": false,
+                "redemption": 0.0,
+                "cashflow": 0.0
+              },
+              {
+                "quarter": 5,
+                "time_years": 1.25,
+                "level": 0.74,
+                "coupon_eligible": true,
+                "coupon": 2.0,
+                "autocalled": false,
+                "redemption": 0.0,
+                "cashflow": 2.0
+              },
+              {
+                "quarter": 6,
+                "time_years": 1.5,
+                "level": 0.69,
+                "coupon_eligible": false,
+                "coupon": 0.0,
+                "autocalled": false,
+                "redemption": 0.0,
+                "cashflow": 0.0
+              },
+              {
+                "quarter": 7,
+                "time_years": 1.75,
+                "level": 0.63,
+                "coupon_eligible": false,
+                "coupon": 0.0,
+                "autocalled": false,
+                "redemption": 0.0,
+                "cashflow": 0.0
+              },
+              {
+                "quarter": 8,
+                "time_years": 2.0,
+                "level": 0.55,
+                "coupon_eligible": false,
+                "coupon": 0.0,
+                "autocalled": false,
+                "redemption": 55.00000000000001,
+                "cashflow": 55.00000000000001
+              }
+            ]
+          }
+        ]
+      },
+      "checks": {
+        "eight_supplied_observations_each": true,
+        "two_percent_coupon_per_quarter": true,
+        "up_redeems_first_quarter": true,
+        "downside_loss_when_final_below_protection": true
+      },
+      "conventions": [
+        "NON-MEMORY coupon: 8% per year / 4 = 2 per quarter per 100 principal when level >=70%.",
+        "At each quarterly date coupon is tested first; level >=100% redeems 100 and ends the note.",
+        "At quarter 8: redeem 100 if level >=60%; otherwise redeem 100*final level.",
+        "Undiscounted deterministic scenario cashflows only; no probabilities, PV or pricing model is inferred."
+      ],
+      "limitations": [
+        "No coupon memory, issuer default, reinvestment, discounting, fees or live market data.",
+        "Eight authored observations describe full hypothetical paths; observations after an early call are unused."
+      ],
+      "assumptions": [
+        "The original up/flat/down arrays supplied only 2/3/3 observations. Those prefixes are preserved verbatim and explicitly extended to eight quarterly levels.",
+        "Assume first observation at 0.25 years and no lockout; principal is normalized to 100.",
+        "Down path completion is [.62,.74,.69,.63,.55] after the original [.82,.68,.55], illustrating a later non-memory coupon without recovery of missed coupons."
+      ],
+      "execution_mode": "authored_fixed_reference; no learner code executed",
+      "solution": "# Standalone authored TPL practice reference. No learner code is executed by the service.\nfrom __future__ import annotations\nimport json\nimport math\nimport statistics\n\ndef _number(value, label, low, high):\n    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:\n        raise ValueError(f'{label} must be a finite number in [{low}, {high}].')\n    return float(value)\n\ndef _cdf(x):\n    return .5 * (1 + math.erf(x / math.sqrt(2)))\n\ndef _bsm(spot, strike, rate, vol, maturity, dividend=0):\n    s=_number(spot,'spot',1e-9,1e9);k=_number(strike,'strike',1e-9,1e9)\n    t=_number(maturity,'maturity',1e-9,30);v=_number(vol,'volatility',1e-9,5)\n    r=_number(rate,'rate',-1,1);q=_number(dividend,'dividend',-1,1)\n    d1=(math.log(s/k)+(r-q+v*v/2)*t)/(v*math.sqrt(t));d2=d1-v*math.sqrt(t)\n    call=s*math.exp(-q*t)*_cdf(d1)-k*math.exp(-r*t)*_cdf(d2)\n    put=k*math.exp(-r*t)*_cdf(-d2)-s*math.exp(-q*t)*_cdf(-d1)\n    phi=math.exp(-d1*d1/2)/math.sqrt(2*math.pi)\n    return {'call':call,'put':put,'d1':d1,'d2':d2,\n            'delta':math.exp(-q*t)*_cdf(d1),'vega_per_unit_vol':s*math.exp(-q*t)*phi*math.sqrt(t)}\n\ndef _newton_iv(target, spot, strike, rate, maturity, guess=.2, tolerance=1e-10, max_iterations=20):\n    target=_number(target,'market price',0,1e9)\n    lower=max(0,spot-strike*math.exp(-rate*maturity));upper=spot\n    if not lower < target < upper:raise ValueError('Target is outside the strict European call price bounds.')\n    lo,hi=1e-8,5.0;sigma=_number(guess,'initial guess',lo,hi);trace=[];fallbacks=0\n    for index in range(max_iterations):\n        value=_bsm(spot,strike,rate,sigma,maturity);error=value['call']-target\n        trace.append({'evaluation':index+1,'sigma':sigma,'call_price':value['call'],'price_error':error,\n                      'vega_per_unit_vol':value['vega_per_unit_vol']})\n        if abs(error)<=tolerance:\n            return {'volatility':sigma,'converged':True,'price_evaluations':len(trace),'newton_updates':len(trace)-1,\n                    'price_error':error,'repriced_call':value['call'],'fallback_steps':fallbacks,'trace':trace}\n        if error>0:hi=sigma\n        else:lo=sigma\n        candidate=sigma-error/value['vega_per_unit_vol'] if value['vega_per_unit_vol']>1e-12 else float('nan')\n        if not math.isfinite(candidate) or not lo<candidate<hi:\n            candidate=(lo+hi)/2;fallbacks+=1\n        sigma=candidate\n    raise ValueError('Implied volatility did not converge within the bounded iteration budget.')\n\ndef _barrier_cashflow(spot,strike,barrier,notional,previously_touched=False):\n    knocked_out=previously_touched or spot<=barrier\n    return knocked_out,0.0 if knocked_out else max(spot-strike,0)*notional\n\ndef _solve_autocall(t):\n    quarterly_coupon=t['annual_coupon_rate']/t['observations_per_year']*t['principal']\n    paths=[]\n    for name,levels in t['paths'].items():\n        if len(levels)!=t['quarters']:raise ValueError('Every authored path must supply all eight quarterly observations.')\n        rows=[];coupons=0.0;principal_cash=0.0;called=False\n        for index,level in enumerate(levels):\n            quarter=index+1;coupon=quarterly_coupon if level>=t['coupon_barrier'] else 0.0\n            autocall=level>=t['autocall_level'];matured=quarter==t['quarters']\n            redemption=t['principal'] if autocall or (matured and level>=t['protection_barrier']) else t['principal']*level if matured else 0.0\n            rows.append({'quarter':quarter,'time_years':quarter/t['observations_per_year'],'level':level,\n                         'coupon_eligible':level>=t['coupon_barrier'],'coupon':coupon,'autocalled':autocall,\n                         'redemption':redemption,'cashflow':coupon+redemption})\n            coupons+=coupon;principal_cash+=redemption\n            if autocall:called=True;break\n        paths.append({'name':name,'observed_quarters':len(rows),'autocalled':called,'coupon_total':coupons,\n                      'principal_redemption':principal_cash,'total_undiscounted_cashflows':coupons+principal_cash,'cashflows':rows})\n    return {'principal':t['principal'],'cashflow_unit':'per 100 initial principal; undiscounted','coupon_per_quarter':quarterly_coupon,\n            'coupon_memory':False,'maturity_years':t['quarters']/t['observations_per_year'],'scenarios':paths,\n            'checks':{'eight_supplied_observations_each':all(len(levels)==8 for levels in t['paths'].values()),\n                      'two_percent_coupon_per_quarter':math.isclose(quarterly_coupon,2),'up_redeems_first_quarter':paths[0]['observed_quarters']==1,\n                      'downside_loss_when_final_below_protection':paths[2]['principal_redemption']<t['principal']}}\n\ndef _pack_reference(exercise_id,ticket,result,conventions,limitations,assumptions):\n    result=dict(result);checks=result.pop('checks')\n    return {'schema_version':'tpl.practice-reference.v1','id':exercise_id,'ticket':ticket,'result':result,\n            'checks':checks,'conventions':conventions,'limitations':limitations,'assumptions':assumptions,\n            'execution_mode':'authored_fixed_reference; no learner code executed'}\n\nREFERENCE_ID = json.loads('\"autocall\"')\nTICKET = json.loads('{\"principal\": 100, \"annual_coupon_rate\": 0.08, \"observations_per_year\": 4, \"quarters\": 8, \"autocall_level\": 1, \"coupon_barrier\": 0.7, \"protection_barrier\": 0.6, \"paths\": {\"up\": [1.02, 1.04, 1.06, 1.08, 1.1, 1.12, 1.14, 1.16], \"flat\": [0.95, 0.99, 1.01, 0.98, 1.02, 1.03, 1.01, 1.05], \"down\": [0.82, 0.68, 0.55, 0.62, 0.74, 0.69, 0.63, 0.55]}}')\nCONVENTIONS = json.loads('[\"NON-MEMORY coupon: 8% per year / 4 = 2 per quarter per 100 principal when level >=70%.\", \"At each quarterly date coupon is tested first; level >=100% redeems 100 and ends the note.\", \"At quarter 8: redeem 100 if level >=60%; otherwise redeem 100*final level.\", \"Undiscounted deterministic scenario cashflows only; no probabilities, PV or pricing model is inferred.\"]')\nLIMITATIONS = json.loads('[\"No coupon memory, issuer default, reinvestment, discounting, fees or live market data.\", \"Eight authored observations describe full hypothetical paths; observations after an early call are unused.\"]')\nASSUMPTIONS = json.loads('[\"The original up/flat/down arrays supplied only 2/3/3 observations. Those prefixes are preserved verbatim and explicitly extended to eight quarterly levels.\", \"Assume first observation at 0.25 years and no lockout; principal is normalized to 100.\", \"Down path completion is [.62,.74,.69,.63,.55] after the original [.82,.68,.55], illustrating a later non-memory coupon without recovery of missed coupons.\"]')\n\nif __name__ == \"__main__\":\n    result = _pack_reference(REFERENCE_ID, TICKET, _solve_autocall(TICKET), CONVENTIONS, LIMITATIONS, ASSUMPTIONS)\n    print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))\n",
+      "output": "{\n  \"assumptions\": [\n    \"The original up/flat/down arrays supplied only 2/3/3 observations. Those prefixes are preserved verbatim and explicitly extended to eight quarterly levels.\",\n    \"Assume first observation at 0.25 years and no lockout; principal is normalized to 100.\",\n    \"Down path completion is [.62,.74,.69,.63,.55] after the original [.82,.68,.55], illustrating a later non-memory coupon without recovery of missed coupons.\"\n  ],\n  \"checks\": {\n    \"downside_loss_when_final_below_protection\": true,\n    \"eight_supplied_observations_each\": true,\n    \"two_percent_coupon_per_quarter\": true,\n    \"up_redeems_first_quarter\": true\n  },\n  \"conventions\": [\n    \"NON-MEMORY coupon: 8% per year / 4 = 2 per quarter per 100 principal when level >=70%.\",\n    \"At each quarterly date coupon is tested first; level >=100% redeems 100 and ends the note.\",\n    \"At quarter 8: redeem 100 if level >=60%; otherwise redeem 100*final level.\",\n    \"Undiscounted deterministic scenario cashflows only; no probabilities, PV or pricing model is inferred.\"\n  ],\n  \"execution_mode\": \"authored_fixed_reference; no learner code executed\",\n  \"id\": \"autocall\",\n  \"limitations\": [\n    \"No coupon memory, issuer default, reinvestment, discounting, fees or live market data.\",\n    \"Eight authored observations describe full hypothetical paths; observations after an early call are unused.\"\n  ],\n  \"result\": {\n    \"cashflow_unit\": \"per 100 initial principal; undiscounted\",\n    \"coupon_memory\": false,\n    \"coupon_per_quarter\": 2.0,\n    \"maturity_years\": 2.0,\n    \"principal\": 100,\n    \"scenarios\": [\n      {\n        \"autocalled\": true,\n        \"cashflows\": [\n          {\n            \"autocalled\": true,\n            \"cashflow\": 102.0,\n            \"coupon\": 2.0,\n            \"coupon_eligible\": true,\n            \"level\": 1.02,\n            \"quarter\": 1,\n            \"redemption\": 100,\n            \"time_years\": 0.25\n          }\n        ],\n        \"coupon_total\": 2.0,\n        \"name\": \"up\",\n        \"observed_quarters\": 1,\n        \"principal_redemption\": 100.0,\n        \"total_undiscounted_cashflows\": 102.0\n      },\n      {\n        \"autocalled\": true,\n        \"cashflows\": [\n          {\n            \"autocalled\": false,\n            \"cashflow\": 2.0,\n            \"coupon\": 2.0,\n            \"coupon_eligible\": true,\n            \"level\": 0.95,\n            \"quarter\": 1,\n            \"redemption\": 0.0,\n            \"time_years\": 0.25\n          },\n          {\n            \"autocalled\": false,\n            \"cashflow\": 2.0,\n            \"coupon\": 2.0,\n            \"coupon_eligible\": true,\n            \"level\": 0.99,\n            \"quarter\": 2,\n            \"redemption\": 0.0,\n            \"time_years\": 0.5\n          },\n          {\n            \"autocalled\": true,\n            \"cashflow\": 102.0,\n            \"coupon\": 2.0,\n            \"coupon_eligible\": true,\n            \"level\": 1.01,\n            \"quarter\": 3,\n            \"redemption\": 100,\n            \"time_years\": 0.75\n          }\n        ],\n        \"coupon_total\": 6.0,\n        \"name\": \"flat\",\n        \"observed_quarters\": 3,\n        \"principal_redemption\": 100.0,\n        \"total_undiscounted_cashflows\": 106.0\n      },\n      {\n        \"autocalled\": false,\n        \"cashflows\": [\n          {\n            \"autocalled\": false,\n            \"cashflow\": 2.0,\n            \"coupon\": 2.0,\n            \"coupon_eligible\": true,\n            \"level\": 0.82,\n            \"quarter\": 1,\n            \"redemption\": 0.0,\n            \"time_years\": 0.25\n          },\n          {\n            \"autocalled\": false,\n            \"cashflow\": 0.0,\n            \"coupon\": 0.0,\n            \"coupon_eligible\": false,\n            \"level\": 0.68,\n            \"quarter\": 2,\n            \"redemption\": 0.0,\n            \"time_years\": 0.5\n          },\n          {\n            \"autocalled\": false,\n            \"cashflow\": 0.0,\n            \"coupon\": 0.0,\n            \"coupon_eligible\": false,\n            \"level\": 0.55,\n            \"quarter\": 3,\n            \"redemption\": 0.0,\n            \"time_years\": 0.75\n          },\n          {\n            \"autocalled\": false,\n            \"cashflow\": 0.0,\n            \"coupon\": 0.0,\n            \"coupon_eligible\": false,\n            \"level\": 0.62,\n            \"quarter\": 4,\n            \"redemption\": 0.0,\n            \"time_years\": 1.0\n          },\n          {\n            \"autocalled\": false,\n            \"cashflow\": 2.0,\n            \"coupon\": 2.0,\n            \"coupon_eligible\": true,\n            \"level\": 0.74,\n            \"quarter\": 5,\n            \"redemption\": 0.0,\n            \"time_years\": 1.25\n          },\n          {\n            \"autocalled\": false,\n            \"cashflow\": 0.0,\n            \"coupon\": 0.0,\n            \"coupon_eligible\": false,\n            \"level\": 0.69,\n            \"quarter\": 6,\n            \"redemption\": 0.0,\n            \"time_years\": 1.5\n          },\n          {\n            \"autocalled\": false,\n            \"cashflow\": 0.0,\n            \"coupon\": 0.0,\n            \"coupon_eligible\": false,\n            \"level\": 0.63,\n            \"quarter\": 7,\n            \"redemption\": 0.0,\n            \"time_years\": 1.75\n          },\n          {\n            \"autocalled\": false,\n            \"cashflow\": 55.00000000000001,\n            \"coupon\": 0.0,\n            \"coupon_eligible\": false,\n            \"level\": 0.55,\n            \"quarter\": 8,\n            \"redemption\": 55.00000000000001,\n            \"time_years\": 2.0\n          }\n        ],\n        \"coupon_total\": 4.0,\n        \"name\": \"down\",\n        \"observed_quarters\": 8,\n        \"principal_redemption\": 55.00000000000001,\n        \"total_undiscounted_cashflows\": 59.00000000000001\n      }\n    ]\n  },\n  \"schema_version\": \"tpl.practice-reference.v1\",\n  \"ticket\": {\n    \"annual_coupon_rate\": 0.08,\n    \"autocall_level\": 1,\n    \"coupon_barrier\": 0.7,\n    \"observations_per_year\": 4,\n    \"paths\": {\n      \"down\": [\n        0.82,\n        0.68,\n        0.55,\n        0.62,\n        0.74,\n        0.69,\n        0.63,\n        0.55\n      ],\n      \"flat\": [\n        0.95,\n        0.99,\n        1.01,\n        0.98,\n        1.02,\n        1.03,\n        1.01,\n        1.05\n      ],\n      \"up\": [\n        1.02,\n        1.04,\n        1.06,\n        1.08,\n        1.1,\n        1.12,\n        1.14,\n        1.16\n      ]\n    },\n    \"principal\": 100,\n    \"protection_barrier\": 0.6,\n    \"quarters\": 8\n  }\n}",
+      "dependencies": [],
+      "python_version": ">=3.10",
+      "output_format": "JSON actually produced by the standalone Python reference",
+      "assessment_notice": "A computed reference and self-review aid; no expert reasoning grade or hiring certification."
+    },
+    {
+      "schema_version": "tpl.practice-reference.v1",
+      "id": "cds-cs01",
+      "ticket": {
+        "notional": 50000000,
+        "spread": 0.012,
+        "risky_annuity": 4.2,
+        "shock_bp": 25,
+        "currency": "EUR",
+        "position": "protection_buyer"
+      },
+      "result": {
+        "currency": "EUR",
+        "position": "protection BUYER",
+        "annual_premium_cashflow": -600000.0,
+        "cs01_per_bp_widening": 21000.0,
+        "spread_shock_pnl": 525000.0,
+        "premium_and_pnl_are_different_horizons": true
+      },
+      "checks": {
+        "buyer_pays_premium": true,
+        "buyer_gains_when_spreads_widen": true,
+        "cs01_positive_for_buyer": true
+      },
+      "conventions": [
+        "Explicit protection BUYER: pays annual premium, positive CS01 for spread widening.",
+        "1bp=0.0001; risky annuity is supplied and held fixed."
+      ],
+      "limitations": [
+        "Annual premium cashflow and instantaneous shock P&L have different horizons and are not added as a guaranteed profit.",
+        "No default probability, recovery, accrued-on-default, roll-down, funding, jump-to-default or full curve repricing is supplied."
+      ],
+      "assumptions": [
+        "Protection BUYER and EUR are fixed explicitly to resolve the unsigned original brief/output."
+      ],
+      "execution_mode": "authored_fixed_reference; no learner code executed",
+      "solution": "# Standalone authored TPL practice reference. No learner code is executed by the service.\nfrom __future__ import annotations\nimport json\nimport math\nimport statistics\n\ndef _number(value, label, low, high):\n    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:\n        raise ValueError(f'{label} must be a finite number in [{low}, {high}].')\n    return float(value)\n\ndef _cdf(x):\n    return .5 * (1 + math.erf(x / math.sqrt(2)))\n\ndef _bsm(spot, strike, rate, vol, maturity, dividend=0):\n    s=_number(spot,'spot',1e-9,1e9);k=_number(strike,'strike',1e-9,1e9)\n    t=_number(maturity,'maturity',1e-9,30);v=_number(vol,'volatility',1e-9,5)\n    r=_number(rate,'rate',-1,1);q=_number(dividend,'dividend',-1,1)\n    d1=(math.log(s/k)+(r-q+v*v/2)*t)/(v*math.sqrt(t));d2=d1-v*math.sqrt(t)\n    call=s*math.exp(-q*t)*_cdf(d1)-k*math.exp(-r*t)*_cdf(d2)\n    put=k*math.exp(-r*t)*_cdf(-d2)-s*math.exp(-q*t)*_cdf(-d1)\n    phi=math.exp(-d1*d1/2)/math.sqrt(2*math.pi)\n    return {'call':call,'put':put,'d1':d1,'d2':d2,\n            'delta':math.exp(-q*t)*_cdf(d1),'vega_per_unit_vol':s*math.exp(-q*t)*phi*math.sqrt(t)}\n\ndef _newton_iv(target, spot, strike, rate, maturity, guess=.2, tolerance=1e-10, max_iterations=20):\n    target=_number(target,'market price',0,1e9)\n    lower=max(0,spot-strike*math.exp(-rate*maturity));upper=spot\n    if not lower < target < upper:raise ValueError('Target is outside the strict European call price bounds.')\n    lo,hi=1e-8,5.0;sigma=_number(guess,'initial guess',lo,hi);trace=[];fallbacks=0\n    for index in range(max_iterations):\n        value=_bsm(spot,strike,rate,sigma,maturity);error=value['call']-target\n        trace.append({'evaluation':index+1,'sigma':sigma,'call_price':value['call'],'price_error':error,\n                      'vega_per_unit_vol':value['vega_per_unit_vol']})\n        if abs(error)<=tolerance:\n            return {'volatility':sigma,'converged':True,'price_evaluations':len(trace),'newton_updates':len(trace)-1,\n                    'price_error':error,'repriced_call':value['call'],'fallback_steps':fallbacks,'trace':trace}\n        if error>0:hi=sigma\n        else:lo=sigma\n        candidate=sigma-error/value['vega_per_unit_vol'] if value['vega_per_unit_vol']>1e-12 else float('nan')\n        if not math.isfinite(candidate) or not lo<candidate<hi:\n            candidate=(lo+hi)/2;fallbacks+=1\n        sigma=candidate\n    raise ValueError('Implied volatility did not converge within the bounded iteration budget.')\n\ndef _barrier_cashflow(spot,strike,barrier,notional,previously_touched=False):\n    knocked_out=previously_touched or spot<=barrier\n    return knocked_out,0.0 if knocked_out else max(spot-strike,0)*notional\n\ndef _solve_cds(t):\n    carry=-t['notional']*t['spread'];cs01=t['notional']*t['risky_annuity']*.0001;pnl=cs01*t['shock_bp']\n    return {'currency':t['currency'],'position':'protection BUYER','annual_premium_cashflow':carry,\n            'cs01_per_bp_widening':cs01,'spread_shock_pnl':pnl,'premium_and_pnl_are_different_horizons':True,\n            'checks':{'buyer_pays_premium':carry<0,'buyer_gains_when_spreads_widen':pnl>0,'cs01_positive_for_buyer':cs01>0}}\n\ndef _pack_reference(exercise_id,ticket,result,conventions,limitations,assumptions):\n    result=dict(result);checks=result.pop('checks')\n    return {'schema_version':'tpl.practice-reference.v1','id':exercise_id,'ticket':ticket,'result':result,\n            'checks':checks,'conventions':conventions,'limitations':limitations,'assumptions':assumptions,\n            'execution_mode':'authored_fixed_reference; no learner code executed'}\n\nREFERENCE_ID = json.loads('\"cds-cs01\"')\nTICKET = json.loads('{\"notional\": 50000000, \"spread\": 0.012, \"risky_annuity\": 4.2, \"shock_bp\": 25, \"currency\": \"EUR\", \"position\": \"protection_buyer\"}')\nCONVENTIONS = json.loads('[\"Explicit protection BUYER: pays annual premium, positive CS01 for spread widening.\", \"1bp=0.0001; risky annuity is supplied and held fixed.\"]')\nLIMITATIONS = json.loads('[\"Annual premium cashflow and instantaneous shock P&L have different horizons and are not added as a guaranteed profit.\", \"No default probability, recovery, accrued-on-default, roll-down, funding, jump-to-default or full curve repricing is supplied.\"]')\nASSUMPTIONS = json.loads('[\"Protection BUYER and EUR are fixed explicitly to resolve the unsigned original brief/output.\"]')\n\nif __name__ == \"__main__\":\n    result = _pack_reference(REFERENCE_ID, TICKET, _solve_cds(TICKET), CONVENTIONS, LIMITATIONS, ASSUMPTIONS)\n    print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))\n",
+      "output": "{\n  \"assumptions\": [\n    \"Protection BUYER and EUR are fixed explicitly to resolve the unsigned original brief/output.\"\n  ],\n  \"checks\": {\n    \"buyer_gains_when_spreads_widen\": true,\n    \"buyer_pays_premium\": true,\n    \"cs01_positive_for_buyer\": true\n  },\n  \"conventions\": [\n    \"Explicit protection BUYER: pays annual premium, positive CS01 for spread widening.\",\n    \"1bp=0.0001; risky annuity is supplied and held fixed.\"\n  ],\n  \"execution_mode\": \"authored_fixed_reference; no learner code executed\",\n  \"id\": \"cds-cs01\",\n  \"limitations\": [\n    \"Annual premium cashflow and instantaneous shock P&L have different horizons and are not added as a guaranteed profit.\",\n    \"No default probability, recovery, accrued-on-default, roll-down, funding, jump-to-default or full curve repricing is supplied.\"\n  ],\n  \"result\": {\n    \"annual_premium_cashflow\": -600000.0,\n    \"cs01_per_bp_widening\": 21000.0,\n    \"currency\": \"EUR\",\n    \"position\": \"protection BUYER\",\n    \"premium_and_pnl_are_different_horizons\": true,\n    \"spread_shock_pnl\": 525000.0\n  },\n  \"schema_version\": \"tpl.practice-reference.v1\",\n  \"ticket\": {\n    \"currency\": \"EUR\",\n    \"notional\": 50000000,\n    \"position\": \"protection_buyer\",\n    \"risky_annuity\": 4.2,\n    \"shock_bp\": 25,\n    \"spread\": 0.012\n  }\n}",
+      "dependencies": [],
+      "python_version": ">=3.10",
+      "output_format": "JSON actually produced by the standalone Python reference",
+      "assessment_notice": "A computed reference and self-review aid; no expert reasoning grade or hiring certification."
+    },
+    {
+      "schema_version": "tpl.practice-reference.v1",
+      "id": "parametric-var",
+      "ticket": {
+        "portfolio_value": 20000000,
+        "daily_volatility": 0.02,
+        "confidence": 0.95,
+        "horizon_days": 1,
+        "normal_quantile": 1.645,
+        "limit": 600000,
+        "stress_return": -0.05,
+        "currency": "EUR"
+      },
+      "result": {
+        "currency": "EUR",
+        "var_95_one_day": 658000.0,
+        "limit": 600000,
+        "limit_usage": 1.0966666666666667,
+        "limit_breached": true,
+        "stress_pnl": -1000000.0,
+        "used_rounded_normal_quantile": 1.645
+      },
+      "checks": {
+        "hypothetical_limit_breached": true,
+        "stress_exceeds_var": true,
+        "var_is_positive_loss_amount": true
+      },
+      "conventions": [
+        "Use the original rounded one-sided Gaussian quantile z=1.645; zero mean and linear one-day exposure.",
+        "VaR is a positive loss threshold; stress P&L keeps its signed loss."
+      ],
+      "limitations": [
+        "Gaussian parametric VaR is not maximum loss or a coverage guarantee; no heavy tails, nonlinear repricing or liquidity adjustment.",
+        "The 600k limit and -5% stress are hypothetical task inputs, not an institutional approval."
+      ],
+      "assumptions": [
+        "Currency EUR follows the original displayed output; the brief does not state a currency."
+      ],
+      "execution_mode": "authored_fixed_reference; no learner code executed",
+      "solution": "# Standalone authored TPL practice reference. No learner code is executed by the service.\nfrom __future__ import annotations\nimport json\nimport math\nimport statistics\n\ndef _number(value, label, low, high):\n    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:\n        raise ValueError(f'{label} must be a finite number in [{low}, {high}].')\n    return float(value)\n\ndef _cdf(x):\n    return .5 * (1 + math.erf(x / math.sqrt(2)))\n\ndef _bsm(spot, strike, rate, vol, maturity, dividend=0):\n    s=_number(spot,'spot',1e-9,1e9);k=_number(strike,'strike',1e-9,1e9)\n    t=_number(maturity,'maturity',1e-9,30);v=_number(vol,'volatility',1e-9,5)\n    r=_number(rate,'rate',-1,1);q=_number(dividend,'dividend',-1,1)\n    d1=(math.log(s/k)+(r-q+v*v/2)*t)/(v*math.sqrt(t));d2=d1-v*math.sqrt(t)\n    call=s*math.exp(-q*t)*_cdf(d1)-k*math.exp(-r*t)*_cdf(d2)\n    put=k*math.exp(-r*t)*_cdf(-d2)-s*math.exp(-q*t)*_cdf(-d1)\n    phi=math.exp(-d1*d1/2)/math.sqrt(2*math.pi)\n    return {'call':call,'put':put,'d1':d1,'d2':d2,\n            'delta':math.exp(-q*t)*_cdf(d1),'vega_per_unit_vol':s*math.exp(-q*t)*phi*math.sqrt(t)}\n\ndef _newton_iv(target, spot, strike, rate, maturity, guess=.2, tolerance=1e-10, max_iterations=20):\n    target=_number(target,'market price',0,1e9)\n    lower=max(0,spot-strike*math.exp(-rate*maturity));upper=spot\n    if not lower < target < upper:raise ValueError('Target is outside the strict European call price bounds.')\n    lo,hi=1e-8,5.0;sigma=_number(guess,'initial guess',lo,hi);trace=[];fallbacks=0\n    for index in range(max_iterations):\n        value=_bsm(spot,strike,rate,sigma,maturity);error=value['call']-target\n        trace.append({'evaluation':index+1,'sigma':sigma,'call_price':value['call'],'price_error':error,\n                      'vega_per_unit_vol':value['vega_per_unit_vol']})\n        if abs(error)<=tolerance:\n            return {'volatility':sigma,'converged':True,'price_evaluations':len(trace),'newton_updates':len(trace)-1,\n                    'price_error':error,'repriced_call':value['call'],'fallback_steps':fallbacks,'trace':trace}\n        if error>0:hi=sigma\n        else:lo=sigma\n        candidate=sigma-error/value['vega_per_unit_vol'] if value['vega_per_unit_vol']>1e-12 else float('nan')\n        if not math.isfinite(candidate) or not lo<candidate<hi:\n            candidate=(lo+hi)/2;fallbacks+=1\n        sigma=candidate\n    raise ValueError('Implied volatility did not converge within the bounded iteration budget.')\n\ndef _barrier_cashflow(spot,strike,barrier,notional,previously_touched=False):\n    knocked_out=previously_touched or spot<=barrier\n    return knocked_out,0.0 if knocked_out else max(spot-strike,0)*notional\n\ndef _solve_var(t):\n    value=t['portfolio_value']*t['daily_volatility']*t['normal_quantile'];stress=t['portfolio_value']*t['stress_return']\n    return {'currency':t['currency'],'var_95_one_day':value,'limit':t['limit'],'limit_usage':value/t['limit'],\n            'limit_breached':value>t['limit'],'stress_pnl':stress,'used_rounded_normal_quantile':t['normal_quantile'],\n            'checks':{'hypothetical_limit_breached':value>t['limit'],'stress_exceeds_var':-stress>value,'var_is_positive_loss_amount':value>0}}\n\ndef _pack_reference(exercise_id,ticket,result,conventions,limitations,assumptions):\n    result=dict(result);checks=result.pop('checks')\n    return {'schema_version':'tpl.practice-reference.v1','id':exercise_id,'ticket':ticket,'result':result,\n            'checks':checks,'conventions':conventions,'limitations':limitations,'assumptions':assumptions,\n            'execution_mode':'authored_fixed_reference; no learner code executed'}\n\nREFERENCE_ID = json.loads('\"parametric-var\"')\nTICKET = json.loads('{\"portfolio_value\": 20000000, \"daily_volatility\": 0.02, \"confidence\": 0.95, \"horizon_days\": 1, \"normal_quantile\": 1.645, \"limit\": 600000, \"stress_return\": -0.05, \"currency\": \"EUR\"}')\nCONVENTIONS = json.loads('[\"Use the original rounded one-sided Gaussian quantile z=1.645; zero mean and linear one-day exposure.\", \"VaR is a positive loss threshold; stress P&L keeps its signed loss.\"]')\nLIMITATIONS = json.loads('[\"Gaussian parametric VaR is not maximum loss or a coverage guarantee; no heavy tails, nonlinear repricing or liquidity adjustment.\", \"The 600k limit and -5% stress are hypothetical task inputs, not an institutional approval.\"]')\nASSUMPTIONS = json.loads('[\"Currency EUR follows the original displayed output; the brief does not state a currency.\"]')\n\nif __name__ == \"__main__\":\n    result = _pack_reference(REFERENCE_ID, TICKET, _solve_var(TICKET), CONVENTIONS, LIMITATIONS, ASSUMPTIONS)\n    print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))\n",
+      "output": "{\n  \"assumptions\": [\n    \"Currency EUR follows the original displayed output; the brief does not state a currency.\"\n  ],\n  \"checks\": {\n    \"hypothetical_limit_breached\": true,\n    \"stress_exceeds_var\": true,\n    \"var_is_positive_loss_amount\": true\n  },\n  \"conventions\": [\n    \"Use the original rounded one-sided Gaussian quantile z=1.645; zero mean and linear one-day exposure.\",\n    \"VaR is a positive loss threshold; stress P&L keeps its signed loss.\"\n  ],\n  \"execution_mode\": \"authored_fixed_reference; no learner code executed\",\n  \"id\": \"parametric-var\",\n  \"limitations\": [\n    \"Gaussian parametric VaR is not maximum loss or a coverage guarantee; no heavy tails, nonlinear repricing or liquidity adjustment.\",\n    \"The 600k limit and -5% stress are hypothetical task inputs, not an institutional approval.\"\n  ],\n  \"result\": {\n    \"currency\": \"EUR\",\n    \"limit\": 600000,\n    \"limit_breached\": true,\n    \"limit_usage\": 1.0966666666666667,\n    \"stress_pnl\": -1000000.0,\n    \"used_rounded_normal_quantile\": 1.645,\n    \"var_95_one_day\": 658000.0\n  },\n  \"schema_version\": \"tpl.practice-reference.v1\",\n  \"ticket\": {\n    \"confidence\": 0.95,\n    \"currency\": \"EUR\",\n    \"daily_volatility\": 0.02,\n    \"horizon_days\": 1,\n    \"limit\": 600000,\n    \"normal_quantile\": 1.645,\n    \"portfolio_value\": 20000000,\n    \"stress_return\": -0.05\n  }\n}",
+      "dependencies": [],
+      "python_version": ">=3.10",
+      "output_format": "JSON actually produced by the standalone Python reference",
+      "assessment_notice": "A computed reference and self-review aid; no expert reasoning grade or hiring certification."
+    },
+    {
+      "schema_version": "tpl.practice-reference.v1",
+      "id": "bond-duration",
+      "ticket": {
+        "market_value": 25000000,
+        "modified_duration": 6.8,
+        "yield_shock_bp": 25
+      },
+      "result": {
+        "currency": "EUR",
+        "position": "long bond",
+        "dv01_magnitude_per_bp": 17000.0,
+        "signed_pnl_per_bp_up": -17000.0,
+        "shock_pnl": -425000.0
+      },
+      "checks": {
+        "long_bond_loses_on_yield_rise": true,
+        "dv01_magnitude_positive": true
+      },
+      "conventions": [
+        "Long bond; modified-duration DV01 is a positive magnitude, signed P&L for rates up is negative.",
+        "1bp=0.0001; shock is +25bp."
+      ],
+      "limitations": [
+        "First-order duration approximation only; no convexity input, coupon cashflows, spread/basis risk or exact repricing is supplied."
+      ],
+      "assumptions": [],
+      "execution_mode": "authored_fixed_reference; no learner code executed",
+      "solution": "# Standalone authored TPL practice reference. No learner code is executed by the service.\nfrom __future__ import annotations\nimport json\nimport math\nimport statistics\n\ndef _number(value, label, low, high):\n    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:\n        raise ValueError(f'{label} must be a finite number in [{low}, {high}].')\n    return float(value)\n\ndef _cdf(x):\n    return .5 * (1 + math.erf(x / math.sqrt(2)))\n\ndef _bsm(spot, strike, rate, vol, maturity, dividend=0):\n    s=_number(spot,'spot',1e-9,1e9);k=_number(strike,'strike',1e-9,1e9)\n    t=_number(maturity,'maturity',1e-9,30);v=_number(vol,'volatility',1e-9,5)\n    r=_number(rate,'rate',-1,1);q=_number(dividend,'dividend',-1,1)\n    d1=(math.log(s/k)+(r-q+v*v/2)*t)/(v*math.sqrt(t));d2=d1-v*math.sqrt(t)\n    call=s*math.exp(-q*t)*_cdf(d1)-k*math.exp(-r*t)*_cdf(d2)\n    put=k*math.exp(-r*t)*_cdf(-d2)-s*math.exp(-q*t)*_cdf(-d1)\n    phi=math.exp(-d1*d1/2)/math.sqrt(2*math.pi)\n    return {'call':call,'put':put,'d1':d1,'d2':d2,\n            'delta':math.exp(-q*t)*_cdf(d1),'vega_per_unit_vol':s*math.exp(-q*t)*phi*math.sqrt(t)}\n\ndef _newton_iv(target, spot, strike, rate, maturity, guess=.2, tolerance=1e-10, max_iterations=20):\n    target=_number(target,'market price',0,1e9)\n    lower=max(0,spot-strike*math.exp(-rate*maturity));upper=spot\n    if not lower < target < upper:raise ValueError('Target is outside the strict European call price bounds.')\n    lo,hi=1e-8,5.0;sigma=_number(guess,'initial guess',lo,hi);trace=[];fallbacks=0\n    for index in range(max_iterations):\n        value=_bsm(spot,strike,rate,sigma,maturity);error=value['call']-target\n        trace.append({'evaluation':index+1,'sigma':sigma,'call_price':value['call'],'price_error':error,\n                      'vega_per_unit_vol':value['vega_per_unit_vol']})\n        if abs(error)<=tolerance:\n            return {'volatility':sigma,'converged':True,'price_evaluations':len(trace),'newton_updates':len(trace)-1,\n                    'price_error':error,'repriced_call':value['call'],'fallback_steps':fallbacks,'trace':trace}\n        if error>0:hi=sigma\n        else:lo=sigma\n        candidate=sigma-error/value['vega_per_unit_vol'] if value['vega_per_unit_vol']>1e-12 else float('nan')\n        if not math.isfinite(candidate) or not lo<candidate<hi:\n            candidate=(lo+hi)/2;fallbacks+=1\n        sigma=candidate\n    raise ValueError('Implied volatility did not converge within the bounded iteration budget.')\n\ndef _barrier_cashflow(spot,strike,barrier,notional,previously_touched=False):\n    knocked_out=previously_touched or spot<=barrier\n    return knocked_out,0.0 if knocked_out else max(spot-strike,0)*notional\n\ndef _solve_bond(t):\n    dv01=t['market_value']*t['modified_duration']*.0001;pnl=-dv01*t['yield_shock_bp']\n    return {'currency':'EUR','position':'long bond','dv01_magnitude_per_bp':dv01,'signed_pnl_per_bp_up':-dv01,\n            'shock_pnl':pnl,'checks':{'long_bond_loses_on_yield_rise':pnl<0,'dv01_magnitude_positive':dv01>0}}\n\ndef _pack_reference(exercise_id,ticket,result,conventions,limitations,assumptions):\n    result=dict(result);checks=result.pop('checks')\n    return {'schema_version':'tpl.practice-reference.v1','id':exercise_id,'ticket':ticket,'result':result,\n            'checks':checks,'conventions':conventions,'limitations':limitations,'assumptions':assumptions,\n            'execution_mode':'authored_fixed_reference; no learner code executed'}\n\nREFERENCE_ID = json.loads('\"bond-duration\"')\nTICKET = json.loads('{\"market_value\": 25000000, \"modified_duration\": 6.8, \"yield_shock_bp\": 25}')\nCONVENTIONS = json.loads('[\"Long bond; modified-duration DV01 is a positive magnitude, signed P&L for rates up is negative.\", \"1bp=0.0001; shock is +25bp.\"]')\nLIMITATIONS = json.loads('[\"First-order duration approximation only; no convexity input, coupon cashflows, spread/basis risk or exact repricing is supplied.\"]')\nASSUMPTIONS = json.loads('[]')\n\nif __name__ == \"__main__\":\n    result = _pack_reference(REFERENCE_ID, TICKET, _solve_bond(TICKET), CONVENTIONS, LIMITATIONS, ASSUMPTIONS)\n    print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))\n",
+      "output": "{\n  \"assumptions\": [],\n  \"checks\": {\n    \"dv01_magnitude_positive\": true,\n    \"long_bond_loses_on_yield_rise\": true\n  },\n  \"conventions\": [\n    \"Long bond; modified-duration DV01 is a positive magnitude, signed P&L for rates up is negative.\",\n    \"1bp=0.0001; shock is +25bp.\"\n  ],\n  \"execution_mode\": \"authored_fixed_reference; no learner code executed\",\n  \"id\": \"bond-duration\",\n  \"limitations\": [\n    \"First-order duration approximation only; no convexity input, coupon cashflows, spread/basis risk or exact repricing is supplied.\"\n  ],\n  \"result\": {\n    \"currency\": \"EUR\",\n    \"dv01_magnitude_per_bp\": 17000.0,\n    \"position\": \"long bond\",\n    \"shock_pnl\": -425000.0,\n    \"signed_pnl_per_bp_up\": -17000.0\n  },\n  \"schema_version\": \"tpl.practice-reference.v1\",\n  \"ticket\": {\n    \"market_value\": 25000000,\n    \"modified_duration\": 6.8,\n    \"yield_shock_bp\": 25\n  }\n}",
+      "dependencies": [],
+      "python_version": ">=3.10",
+      "output_format": "JSON actually produced by the standalone Python reference",
+      "assessment_notice": "A computed reference and self-review aid; no expert reasoning grade or hiring certification."
+    }
+  ]
+}

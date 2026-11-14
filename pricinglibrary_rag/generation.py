@@ -179,7 +179,8 @@ class MaterialGenerator:
             usable_only=True,
             min_quality=45,
         )
-        title = f"Module pratique - {request.topic}"
+        title = (f"Practical course - {request.topic}" if request.language == "en"
+                 else f"Module pratique - {request.topic}")
         # Per-lesson authoring: each lesson body is written on its own (LLM call
         # per lesson, grounded in that lesson's source) inside _course_template,
         # so no two lessons share a skeleton. The verified blocks (worked example
@@ -187,9 +188,15 @@ class MaterialGenerator:
         # sources) are appended verbatim, so an LLM can never paraphrase a number.
         # We deliberately do NOT do a second whole-draft rewrite: that step used
         # to homogenise every lesson into one fill-in-the-blank template.
-        prose = self._course_template(request, title, context)
-        appendix = self._course_appendix(request, context)
-        content = f"{prose.strip()}\n\n{appendix}".strip()
+        english_metadata = {}
+        if request.language == "en":
+            from .course_english import build_english_course
+            content, english_metadata = build_english_course(request, context, self.calculator)
+            title = english_metadata.get("course_title", title)
+        else:
+            prose = self._course_template(request, title, context)
+            appendix = self._course_appendix(request, context)
+            content = f"{prose.strip()}\n\n{appendix}".strip()
         response = GenerationResponse(
             kind="course",
             title=title,
@@ -203,6 +210,8 @@ class MaterialGenerator:
                 "library_track": self._library_track(request.topic, request.product),
                 "source_coverage": context.coverage,
                 "pedagogical_gaps": context.gaps,
+                "language": request.language,
+                **english_metadata,
             },
         )
         self._save("course", request.model_dump(), response.model_dump())
@@ -419,7 +428,8 @@ class MaterialGenerator:
         return ("## References\nOriginal source quotations remain in their source language.\n\n"
                 if language == "en" else "## References (bibliotheque)\n") + self._source_lines(context, family, language)
 
-    def _presentable_source_snippet(self, snippet: str) -> bool:
+    @staticmethod
+    def _presentable_source_snippet(snippet: str) -> bool:
         original = snippet or ""
         if re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", original):
             return False
