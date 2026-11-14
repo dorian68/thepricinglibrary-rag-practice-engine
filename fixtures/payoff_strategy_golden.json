@@ -1,0 +1,109 @@
+{
+  "schemaVersion": "tpl.payoff-strategy.golden.v1",
+  "market": {
+    "spot": 100,
+    "volatility": 0.2,
+    "timeToMaturity": 1,
+    "riskFreeRate": 0,
+    "dividendYield": 0,
+    "currency": "USD",
+    "contractMultiplier": 100,
+    "gridPoints": 401
+  },
+  "cases": [
+    {
+      "id": "long-call-off-window",
+      "overrides": { "contractMultiplier": 1 },
+      "legs": [
+        { "id": "call-200", "type": "call", "side": "long", "strike": 200, "quantity": 1, "premiumSource": "manual", "manualPremium": 5 }
+      ],
+      "expected": {
+        "breakevens": [205],
+        "bounds": { "maxProfit": { "kind": "unlimited", "amount": null }, "maxLoss": { "kind": "finite", "amount": 5 } },
+        "netEntryPremium": 5
+      }
+    },
+    {
+      "id": "naked-short-call",
+      "overrides": { "contractMultiplier": 1 },
+      "legs": [
+        { "id": "short-call", "type": "call", "side": "short", "strike": 100, "quantity": 1, "premiumSource": "manual", "manualPremium": 5 }
+      ],
+      "expected": {
+        "breakevens": [105],
+        "bounds": { "maxProfit": { "kind": "finite", "amount": 5 }, "maxLoss": { "kind": "unlimited", "amount": null } },
+        "netEntryPremium": -5
+      }
+    },
+    {
+      "id": "bull-call-spread-x100",
+      "overrides": {},
+      "legs": [
+        { "id": "lower", "type": "call", "side": "long", "strike": 100, "quantity": 1, "premiumSource": "manual", "manualPremium": 6 },
+        { "id": "upper", "type": "call", "side": "short", "strike": 110, "quantity": 1, "premiumSource": "manual", "manualPremium": 2.5 }
+      ],
+      "expected": {
+        "breakevens": [103.5],
+        "bounds": { "maxProfit": { "kind": "finite", "amount": 650 }, "maxLoss": { "kind": "finite", "amount": 350 } },
+        "netEntryPremium": 350,
+        "analysisId": "009ec55254f314a17faf2498e45ab16310342504c22116958e45ef278bd25e44",
+        "curveCsvSha256": "89f093dfe07175764e846fd5b7e7825853bdeed75cb9c4227ad06bf84b57b7ca",
+        "scenarioCsvSha256": "a978744d940887304501daef93b53b0ebc802535ca4f851ad13a1f7fe3aee2f6"
+      }
+    },
+    {
+      "id": "long-straddle",
+      "overrides": {},
+      "legs": [
+        { "id": "call", "type": "call", "side": "long", "strike": 100, "quantity": 1, "premiumSource": "manual", "manualPremium": 5 },
+        { "id": "put", "type": "put", "side": "long", "strike": 100, "quantity": 1, "premiumSource": "manual", "manualPremium": 5 }
+      ],
+      "expected": {
+        "breakevens": [90, 110],
+        "bounds": { "maxProfit": { "kind": "unlimited", "amount": null }, "maxLoss": { "kind": "finite", "amount": 1000 } },
+        "netEntryPremium": 1000
+      }
+    },
+    {
+      "id": "call-butterfly",
+      "overrides": {},
+      "legs": [
+        { "id": "c95", "type": "call", "side": "long", "strike": 95, "quantity": 1, "premiumSource": "manual", "manualPremium": 7 },
+        { "id": "c100", "type": "call", "side": "short", "strike": 100, "quantity": 2, "premiumSource": "manual", "manualPremium": 4 },
+        { "id": "c105", "type": "call", "side": "long", "strike": 105, "quantity": 1, "premiumSource": "manual", "manualPremium": 2 }
+      ],
+      "expected": {
+        "breakevens": [96, 104],
+        "bounds": { "maxProfit": { "kind": "finite", "amount": 400 }, "maxLoss": { "kind": "finite", "amount": 100 } },
+        "netEntryPremium": 100
+      }
+    },
+    {
+      "id": "iron-condor",
+      "overrides": {},
+      "legs": [
+        { "id": "p85", "type": "put", "side": "long", "strike": 85, "quantity": 1, "premiumSource": "manual", "manualPremium": 1 },
+        { "id": "p95", "type": "put", "side": "short", "strike": 95, "quantity": 1, "premiumSource": "manual", "manualPremium": 2.5 },
+        { "id": "c105", "type": "call", "side": "short", "strike": 105, "quantity": 1, "premiumSource": "manual", "manualPremium": 2.5 },
+        { "id": "c115", "type": "call", "side": "long", "strike": 115, "quantity": 1, "premiumSource": "manual", "manualPremium": 1 }
+      ],
+      "expected": {
+        "breakevens": [92, 108],
+        "bounds": { "maxProfit": { "kind": "finite", "amount": 300 }, "maxLoss": { "kind": "finite", "amount": 700 } },
+        "netEntryPremium": -300
+      }
+    },
+    {
+      "id": "long-put-terminal-boundary",
+      "overrides": { "contractMultiplier": 1 },
+      "legs": [
+        { "id": "put-200", "type": "put", "side": "long", "strike": 200, "quantity": 1, "premiumSource": "manual", "manualPremium": 5 }
+      ],
+      "expected": {
+        "breakevens": [195],
+        "bounds": { "maxProfit": { "kind": "finite", "amount": 195 }, "maxLoss": { "kind": "finite", "amount": 5 } },
+        "netEntryPremium": 5
+      }
+    }
+  ]
+}

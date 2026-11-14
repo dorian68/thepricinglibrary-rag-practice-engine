@@ -113,6 +113,11 @@ class PlatformStore:
                     kind TEXT NOT NULL, ref TEXT, score REAL, meta TEXT,
                     created_at INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS platform_course_positions (
+                    user_id TEXT NOT NULL, course TEXT NOT NULL,
+                    module_index INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+                    PRIMARY KEY(user_id, course)
+                );
                 CREATE TABLE IF NOT EXISTS platform_exercises (
                     id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
                     request_json TEXT NOT NULL, response_json TEXT NOT NULL,
@@ -353,6 +358,10 @@ class PlatformStore:
                 "SELECT kind, ref, score, meta, created_at FROM platform_progress WHERE user_id=? ORDER BY created_at DESC",
                 (user_id,),
             ).fetchall()
+            positions = conn.execute(
+                "SELECT course,module_index,updated_at FROM platform_course_positions WHERE user_id=? ORDER BY course",
+                (user_id,),
+            ).fetchall()
         events = [dict(kind=r["kind"], ref=r["ref"], score=r["score"],
                        meta=json.loads(r["meta"] or "{}"), created_at=r["created_at"]) for r in rows]
         # day buckets for the heatmap (last 91 days)
@@ -379,6 +388,7 @@ class PlatformStore:
         return {
             "events": len(events),
             "completed_lessons": sorted({e["ref"] for e in events if e["kind"] == "lesson" and e["ref"]}),
+            "course_positions": [dict(row) for row in positions],
             "active_days": active_days,
             "heatmap": [{"day": d, "count": c} for d, c in sorted(heat.items())],
             "courses": [{"course": k, "lessons_done": len(v)} for k, v in courses.items()],
@@ -387,6 +397,17 @@ class PlatformStore:
             "avg_score": round(sum(scored) / len(scored), 1) if scored else None,
             "today": today,
         }
+
+    def course_position(self, user_id: str, course_id: str, module_index: int) -> dict:
+        """Remember navigation separately from completed lessons and points."""
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO platform_course_positions(user_id,course,module_index,updated_at) VALUES(?,?,?,?) "
+                "ON CONFLICT(user_id,course) DO UPDATE SET module_index=excluded.module_index,updated_at=excluded.updated_at",
+                (user_id, course_id, module_index, now),
+            )
+        return {"course":course_id,"module_index":module_index,"updated_at":now}
 
     def leaderboard(self, limit: int = 20) -> list[dict]:
         with self._connect() as conn:

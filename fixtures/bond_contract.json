@@ -1,0 +1,61 @@
+{
+  "schemaVersion": "tpl.bond.contract.v1",
+  "inputSchemaVersion": "tpl.bond.input.v1",
+  "analysisSchemaVersion": "tpl.bond.analysis.v1",
+  "engineVersion": "1.0.0",
+  "instrument": "fixed_rate_bullet_bond",
+  "quoteModes": ["yield", "clean_price"],
+  "dayCounts": ["ACT/ACT ICMA", "30E/360"],
+  "couponFrequencies": [1, 2, 4, 12],
+  "positions": ["long", "short"],
+  "limits": {
+    "maxInputBytes": 1000000,
+    "minCouponRate": 0,
+    "maxCouponRate": 1,
+    "minYield": -0.95,
+    "maxYield": 5,
+    "minCleanPrice": 0.00000001,
+    "maxCleanPrice": 1000000,
+    "minNotional": 0.00000001,
+    "maxNotional": 1000000000000,
+    "maxMaturityYears": 100,
+    "minShockBp": -5000,
+    "maxShockBp": 5000,
+    "maxCashflows": 1200,
+    "maxRootIterations": 256
+  },
+  "numeric": {
+    "rootPriceTolerance": 1e-11,
+    "rootYieldTolerance": 1e-14,
+    "exportSignificantDigits": 9,
+    "hashSignificantDigits": 17
+  },
+  "conventions": {
+    "priceBasis": "per 100 nominal",
+    "couponRate": "annual nominal decimal",
+    "yield": "annual nominal decimal compounded at coupon frequency",
+    "settlement": "cash flows strictly after settlement are included",
+    "schedule": "unadjusted regular schedule generated backwards from maturity with end-of-month preservation",
+    "accruedInterest": "coupon per period multiplied by elapsed regular-period fraction",
+    "dirtyPrice": "present value of contractual cash flows per 100 nominal",
+    "cleanPrice": "dirty price minus accrued interest per 100 nominal",
+    "dv01": "positive central price sensitivity: (P(y-1bp)-P(y+1bp))/2",
+    "positionRisk": "long=+1, short=-1; monetary values scale by notional/100",
+    "shock": "parallel yield shock in basis points with exact repricing and duration-convexity approximation"
+  },
+  "limitations": [
+    "Educational fixed-rate bullet bonds only; no calls, puts, sinking funds, amortisation, floating coupons or inflation linkage.",
+    "Coupon schedules are regular and unadjusted; holiday calendars, settlement lags, business-day conventions and irregular stubs are outside v1.",
+    "A single yield-to-maturity discounts every cash flow; this is not a curve, z-spread, OAS or credit valuation model.",
+    "Taxes, fees, default, recovery and liquidity are not modeled."
+  ],
+  "exports": {
+    "cashflowsCsvSchema": "tpl.bond.cashflows.v1",
+    "scenariosCsvSchema": "tpl.bond.scenarios.v1",
+    "cashflowsCsvHeaders": ["schemaVersion", "engineVersion", "analysisId", "paymentDate", "periodIndex", "exponentPeriods", "timeYears", "couponPer100", "principalPer100", "totalCashflowPer100", "discountFactor", "presentValuePer100", "cashflowDv01Per100", "positionDv01"],
+    "scenariosCsvHeaders": ["schemaVersion", "engineVersion", "analysisId", "shockBp", "yield", "dirtyPricePer100", "cleanPricePer100", "exactChangePer100", "durationApproxChangePer100", "durationConvexityApproxChangePer100", "approximationErrorPer100"],
+    "lineEnding": "LF",
+    "finalNewline": true,
+    "numericFormat": "finite_significant_9"
+  }
+}

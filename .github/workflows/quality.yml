@@ -1,9 +1,10 @@
-name: Backend quality
+name: Public backend code checks
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, 'codex/**']
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,14 +13,80 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: Tools/pricinglibrary_rag_backend
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out backend in the shared workspace layout
+        uses: actions/checkout@v4
+        with:
+          path: Tools/pricinglibrary_rag_backend
+      - name: Check out the public JavaScript engine for cross-engine assertions
+        uses: actions/checkout@v4
+        with:
+          repository: dorian68/thepricinglab
+          ref: codex/2026-11-14-interview-lab
+          path: WEBSITE/thepricinglab
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -r requirements.txt
-      - run: pytest -q --basetemp=.pytest_tmp_ci
-      - run: python scripts/production_check.py
-      - run: docker build --no-cache -t tpl-backend-ci .
+          cache-dependency-path: Tools/pricinglibrary_rag_backend/requirements-docker.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install the slim API runtime and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-docker.txt pytest httpx PyMuPDF
+      - name: Restore and verify the versioned shared numerical fixtures
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import shutil
+          backend = Path.cwd()
+          workspace = backend.parents[1]
+          source = backend / 'fixtures'
+          files = sorted(source.glob('*.json'))
+          assert len(files) == 11, 'Expected all eleven versioned numerical fixtures'
+          target = workspace / 'fixtures'
+          target.mkdir(exist_ok=True)
+          for fixture in files:
+              frontend_copy = workspace / 'WEBSITE/thepricinglab/fixtures' / fixture.name
+              assert frontend_copy.is_file(), f'Frontend snapshot missing: {fixture.name}'
+              digest = hashlib.sha256(fixture.read_bytes()).digest()
+              assert hashlib.sha256(frontend_copy.read_bytes()).digest() == digest, f'Fixture drift: {fixture.name}'
+              shutil.copyfile(fixture, target / fixture.name)
+              assert hashlib.sha256((target / fixture.name).read_bytes()).digest() == digest
+          print('11 byte-identical shared fixture snapshots verified')
+          PY
+      - name: Test public learning, signed access and standalone numerical engines
+        env:
+          TPL_LLM_PROVIDER: template
+          TPL_EMBEDDING_BACKEND: local-hashing
+        run: |
+          python -m pytest -q --basetemp=.pytest_tmp_ci \
+            tests/test_interview_lab.py tests/test_english_generation.py \
+            tests/test_exercise_generation.py tests/test_generation_controls.py \
+            tests/test_generation_llm_guardrails.py tests/test_api_security.py \
+            tests/test_observability.py tests/test_black_scholes.py \
+            tests/test_binomial.py tests/test_bond.py tests/test_monte_carlo.py \
+            tests/test_monte_carlo_compat.py tests/test_payoff_strategy.py \
+            tests/test_realized_volatility.py tests/test_vol_surface.py \
+            tests/test_yield_curve.py
+      - name: Run the real API interview journey with isolated signed learners
+        run: python scripts/smoke_interview_lab.py --output reports/interview_lab_ci_smoke.json
+      - name: Build the code-only API image without publishing it
+        run: docker build --no-cache -t tpl-backend-ci .
+      - name: Preserve the scoped CI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-backend-code-evidence
+          path: Tools/pricinglibrary_rag_backend/reports/interview_lab_ci_smoke.json
+          if-no-files-found: ignore
+
+# This intentionally is not production_check.py. That operator release gate
+# additionally requires private licensed course material, reviewed product
+# artifacts and deployment evidence outside these public repositories.

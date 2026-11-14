@@ -1,0 +1,58 @@
+{
+  "schemaVersion": "tpl.payoff-strategy.contract.v1",
+  "analysisSchemaVersion": "tpl.payoff-strategy.analysis.v1",
+  "engineVersion": "1.0.1",
+  "limits": {
+    "maxInputBytes": 1000000,
+    "maxLegs": 20,
+    "maxIdentifierLength": 64,
+    "maxCurrencyLength": 3,
+    "minSpot": 1e-8,
+    "maxSpot": 1000000000,
+    "minStrike": 1e-8,
+    "maxStrike": 1000000000,
+    "maxPremium": 1000000000,
+    "maxQuantity": 1000000,
+    "minContractMultiplier": 1e-8,
+    "maxContractMultiplier": 1000000000,
+    "minMaturityYears": 1e-8,
+    "maxMaturityYears": 100,
+    "minVolatility": 1e-6,
+    "maxVolatility": 5,
+    "minRate": -1,
+    "maxRate": 1,
+    "minGridPoints": 101,
+    "maxGridPoints": 2001
+  },
+  "enums": {
+    "optionTypes": ["call", "put"],
+    "sides": ["long", "short"],
+    "premiumSources": ["model", "manual"],
+    "boundKinds": ["finite", "unlimited"]
+  },
+  "units": {
+    "spotStrikePremium": "currency per underlying unit",
+    "quantity": "positive integer contracts",
+    "contractMultiplier": "underlying units per contract",
+    "volatilityRatesDividendYield": "decimal",
+    "maturity": "years",
+    "pnlPrice": "currency",
+    "delta": "currency P&L per +1 spot unit",
+    "gamma": "currency P&L per +1 spot-unit squared",
+    "vega": "currency P&L per +1 volatility point",
+    "theta": "currency P&L per calendar day",
+    "rho": "currency P&L per +1 rate point"
+  },
+  "numeric": {
+    "comparisonTolerance": 1e-12,
+    "zeroTolerance": 1e-10,
+    "exportSignificantDigits": 12,
+    "hashSignificantDigits": 17
+  },
+  "exports": {
+    "curveCsvSchema": "tpl.payoff-strategy.curve.v1",
+    "scenarioCsvSchema": "tpl.payoff-strategy.scenarios.v1",
+    "curveHeaders": ["schemaVersion", "engineVersion", "analysisId", "terminalSpot", "grossPayoff", "terminalPnl"],
+    "scenarioHeaders": ["schemaVersion", "engineVersion", "analysisId", "terminalSpot", "grossPayoff", "terminalPnl", "legContributions"]
+  }
+}

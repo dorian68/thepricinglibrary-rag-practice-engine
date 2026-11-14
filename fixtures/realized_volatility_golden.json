@@ -1,0 +1,129 @@
+{
+  "schema": "tpl.realized-volatility.fixture.v1",
+  "engineVersion": "1.0.0",
+  "tolerances": {
+    "variance": 1e-14,
+    "annualizedVol": 1e-12,
+    "contribution": 1e-14,
+    "yangZhangK": 1e-15
+  },
+  "baseConfig": {
+    "window": 5,
+    "annualization": 252,
+    "calendarMode": "weekday_sessions",
+    "priceBasis": "split_adjusted_ohlc",
+    "sourceLabel": "deterministic teaching fixture",
+    "symbolLabel": "FIXTURE"
+  },
+  "cases": [
+    {
+      "id": "flat_zero",
+      "rows": [
+        {"date": "2024-01-02", "open": 100, "high": 100, "low": 100, "close": 100},
+        {"date": "2024-01-03", "open": 100, "high": 100, "low": 100, "close": 100},
+        {"date": "2024-01-04", "open": 100, "high": 100, "low": 100, "close": 100},
+        {"date": "2024-01-05", "open": 100, "high": 100, "low": 100, "close": 100},
+        {"date": "2024-01-08", "open": 100, "high": 100, "low": 100, "close": 100},
+        {"date": "2024-01-09", "open": 100, "high": 100, "low": 100, "close": 100}
+      ],
+      "expected": {
+        "n": 5,
+        "yangZhangK": 0.11971830985915495,
+        "dailyVariance": {
+          "closeToClose": 0,
+          "parkinson": 0,
+          "garmanKlass": 0,
+          "rogersSatchell": 0,
+          "yangZhang": 0
+        },
+        "annualizedVol": {
+          "closeToClose": 0,
+          "parkinson": 0,
+          "garmanKlass": 0,
+          "rogersSatchell": 0,
+          "yangZhang": 0
+        },
+        "warningCodes": ["SMALL_SAMPLE", "MANY_FLAT_BARS", "MANY_REPEATED_CLOSES"]
+      }
+    },
+    {
+      "id": "mixed_ohlc_7",
+      "rows": [
+        {"date": "2024-01-02", "open": 100, "high": 102, "low": 99, "close": 101},
+        {"date": "2024-01-03", "open": 101.5, "high": 103, "low": 100.5, "close": 102},
+        {"date": "2024-01-04", "open": 101.8, "high": 104, "low": 101, "close": 103.5},
+        {"date": "2024-01-05", "open": 104, "high": 105, "low": 102, "close": 102.5},
+        {"date": "2024-01-08", "open": 102, "high": 103, "low": 99, "close": 100},
+        {"date": "2024-01-09", "open": 100.5, "high": 102, "low": 99.5, "close": 101.5},
+        {"date": "2024-01-10", "open": 101.2, "high": 104, "low": 100.8, "close": 103.5},
+        {"date": "2024-01-11", "open": 104, "high": 106, "low": 103, "close": 105}
+      ],
+      "expected": {
+        "n": 7,
+        "yangZhangK": 0.12718204488778057,
+        "dailyVariance": {
+          "closeToClose": 0.00026802177997202676,
+          "parkinson": 0.0003239080951810837,
+          "garmanKlass": 0.00036094163642010334,
+          "rogersSatchell": 0.00033916020070880344,
+          "yangZhang": 0.000347074916963559
+        },
+        "annualizedVol": {
+          "closeToClose": 0.2598874536274322,
+          "parkinson": 0.28570061250482665,
+          "garmanKlass": 0.30159126707825284,
+          "rogersSatchell": 0.2923497401719702,
+          "yangZhang": 0.29574123668304503
+        },
+        "annualizedVol365": {
+          "closeToClose": 0.3127745988564125,
+          "parkinson": 0.3438407403742256,
+          "garmanKlass": 0.36296514611369746,
+          "rogersSatchell": 0.3518429667603337,
+          "yangZhang": 0.35592463344323194
+        },
+        "rollingLast": {
+          "date": "2024-01-11",
+          "n": 5,
+          "yangZhangK": 0.11971830985915495,
+          "closeToClose": 0.3045295332135393,
+          "parkinson": 0.2961854659488418,
+          "garmanKlass": 0.3103961681003288,
+          "rogersSatchell": 0.30022232738823773,
+          "yangZhang": 0.30824920012308366
+        },
+        "warningCodes": ["SMALL_SAMPLE"]
+      }
+    },
+    {
+      "id": "overnight_only",
+      "rows": [
+        {"date": "2024-01-02", "open": 100, "high": 100, "low": 100, "close": 100},
+        {"date": "2024-01-03", "open": 110, "high": 110, "low": 110, "close": 110},
+        {"date": "2024-01-04", "open": 100, "high": 100, "low": 100, "close": 100},
+        {"date": "2024-01-05", "open": 110, "high": 110, "low": 110, "close": 110},
+        {"date": "2024-01-08", "open": 100, "high": 100, "low": 100, "close": 100},
+        {"date": "2024-01-09", "open": 110, "high": 110, "low": 110, "close": 110}
+      ],
+      "expected": {
+        "n": 5,
+        "yangZhangK": 0.11971830985915495,
+        "dailyVariance": {
+          "closeToClose": 0.010900836449199295,
+          "parkinson": 0,
+          "garmanKlass": 0,
+          "rogersSatchell": 0,
+          "yangZhang": 0.010900836449199295
+        },
+        "annualizedVol": {
+          "closeToClose": 1.657410867949834,
+          "parkinson": 0,
+          "garmanKlass": 0,
+          "rogersSatchell": 0,
+          "yangZhang": 1.657410867949834
+        },
+        "warningCodes": ["SMALL_SAMPLE", "MANY_FLAT_BARS", "RETURN_OUTLIERS", "OVERNIGHT_DOMINANT"]
+      }
+    }
+  ]
+}

@@ -115,6 +115,7 @@ class MaterialGenerator:
             "query": context.query,
             "difficulty": request.difficulty,
             "format": request.exercise_format,
+            "language": request.language,
             "calculation_pack": pack.model_dump(),
             "coherence": coherence.as_metadata(),
             "assessment": build_assessment(request, pack),
@@ -140,7 +141,10 @@ class MaterialGenerator:
                 meta["validation_fallback"] = True
             else:
                 # Keep the LLM prose but guarantee real, un-collapsed sources.
-                content = content.rstrip() + "\n\n" + self._verified_sources_block(context, pack.family)
+                # Replace the writer's reference section, rather than keeping
+                # invented/duplicated citations beside the real canonical list.
+                body = re.split(r"(?mi)^## (?:References|Références|Sources)(?:[ \t].*)?$", content, maxsplit=1)[0]
+                content = body.rstrip() + "\n\n" + self._verified_sources_block(context, pack.family, request.language)
 
         # A writer cannot replace the authoritative questions, answer mapping or
         # rubric with a different exercise. Fall back to the complete verified draft.
@@ -348,7 +352,7 @@ class MaterialGenerator:
         focus = request.topic or request.product or request.concept or "finance de marche"
         if len(focus) > 90:
             focus = focus[:87].rstrip() + "..."
-        return f"Cas pratique - {focus}"
+        return f"Desk case - {focus}" if request.language == "en" else f"Cas pratique - {focus}"
 
     # Distinctive per-family keywords: a source must mention at least one to be
     # shown for that family, so a swaption excerpt stops surfacing under a CDS
@@ -357,16 +361,18 @@ class MaterialGenerator:
         "cds_cs01": ("credit", "default", "cds", "protection", "spread", "hazard", "recovery", "survival"),
         "rates_swap_dv01": ("swap", "dv01", "annuity", "par rate", "floating", "fixed leg", "tenor"),
         "bond_duration_dv01": ("bond", "duration", "convexity", "yield", "coupon", "obligation"),
-        "vanilla_option_black_scholes": ("option", "call", "put", "delta", "vega", "gamma", "black-scholes", "volatility", "strike"),
+        "vanilla_option_black_scholes": ("option", "call", "put", "delta", "vega", "gamma", "black-scholes", "volatility", "strike", "forward", "carry", "discount", "dividend", "parity", "european"),
         "fx_barrier_option": ("barrier", "knock", "barriere", "down-and-out", "up-and-out", "gap"),
         "parametric_var": ("var", "value at risk", "expected shortfall", "quantile", "confidence", "tail"),
         "autocall_structured": ("autocall", "athena", "phoenix", "coupon", "barrier", "structured", "redemption"),
         "monte_carlo_gbm": ("monte carlo", "simulation", "variance", "confidence interval", "gbm", "path"),
     }
 
-    def _source_lines(self, context: GenerationContext, family: str | None = None) -> str:
+    def _source_lines(self, context: GenerationContext, family: str | None = None, language: str = "fr") -> str:
+        unavailable = ("- No readable source excerpt matched this case. No source quotation is claimed."
+                       if language == "en" else "- Aucun extrait de référence lisible ne correspond à ce cas. Aucune citation n'est revendiquée.")
         if not context.sources:
-            return "- Aucune source retrouvee localement."
+            return unavailable
         # Curate: keep only sources with a clean, presentable excerpt (drop the
         # OCR-noise rows that read as an un-curated dump), renumber, and cap at the
         # most relevant few. A noisy corpus should not surface garbled citations.
@@ -378,46 +384,79 @@ class MaterialGenerator:
                 s for s in clean
                 if any(k in ((s.snippet or "") + " " + (s.title or "")).lower() for k in keywords)
             ]
-            if on_topic:  # never filter down to nothing
-                clean = on_topic
+            clean = on_topic
+        # Select an intact explanatory paragraph before deduplicating a book.
+        # A later clean passage must be preferred over an earlier OCR equation
+        # or a generic research/citation fragment. Original excerpts stay intact.
+        clean.sort(key=lambda src: self._source_prose_score(src.snippet), reverse=True)
         def _clean_title(src) -> str:
-            t = (src.title or src.source or src.document_id or "Source").strip()
+            t = (src.title or src.source or "Library reference").strip()
             t = re.sub(r"\s*\(\s*PDFDrive\s*\)\s*", "", t, flags=re.IGNORECASE)
+            t = re.sub(r"\s*\[\s*PDFDrive\s*\]\s*", "", t, flags=re.IGNORECASE)
             t = re.sub(r"\.(pdf|epub)\b", "", t, flags=re.IGNORECASE)
             t = re.sub(r"\s{2,}", " ", t).strip(" -_")
             return t
         if not clean:
-            return f"- {_clean_title(context.sources[0])}"
+            return unavailable
         # Learner-facing: clean book title + readable excerpt. No chunk ids, no
         # scores, no [Sx]/family slugs (those stay in metadata / back-office).
         seen, lines = set(), []
         for src in clean:
             title = _clean_title(src)
-            if title in seen:
+            book_key = re.sub(r"\W+", "", title.casefold())
+            if not book_key or book_key in seen:
                 continue
-            seen.add(title)
+            seen.add(book_key)
             lines.append(f"- *{title}* — « {src.snippet.strip()} »")
             if len(lines) >= 4:
                 break
         return "\n".join(lines)
 
-    def _verified_sources_block(self, context: GenerationContext, family: str | None = None) -> str:
+    def _verified_sources_block(self, context: GenerationContext, family: str | None = None, language: str = "fr") -> str:
         """Canonical, un-collapsible sources appended after an LLM rewrite, so the
         real [Sx] excerpts and provenance survive even if the model summarised the
         section into placeholders."""
-        return "## References (bibliotheque)\n" + self._source_lines(context, family)
+        return ("## References\nOriginal source quotations remain in their source language.\n\n"
+                if language == "en" else "## References (bibliotheque)\n") + self._source_lines(context, family, language)
 
     def _presentable_source_snippet(self, snippet: str) -> bool:
-        text = (snippet or "").strip()
+        original = snippet or ""
+        if re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", original):
+            return False
+        text = original.strip()
         if len(text) < 60:
+            return False
+        if re.search(r"[+−-]\s*=", text):
+            return False
+        if len(re.findall(r"\b[A-Za-z]\s*[-−]\s*[A-Za-z]\s*\+", text)) >= 2:
+            return False
+        # Do not turn an isolated equation/table tail into a book quotation.
+        # In particular, OCR fragments such as `1.387)` need to be withheld,
+        # not silently repaired into a plausible mathematical statement.
+        if re.match(r"^(?:\(?\d[\d. ]*\)|\d+(?:\.\d+){2,}[).]?\s|[=+*/^{}<>])", text):
+            return False
+        if "\ufffd" in text or re.search(r"(?:[_=^{}|]\s*){4,}", text):
             return False
         if re.match(r"^[a-z]{1,3}[,.\s]", text):
             return False
         if len(re.findall(r"\b[A-Za-z]{4,}\b", text)) < 8:
             return False
+        letters = sum(char.isalpha() for char in text)
+        if letters / max(len(text), 1) < 0.55:
+            return False
         if re.search(r"\b(PDFDrive|http://|https://|www\.)\b", text) and len(text) < 120:
             return False
         return True
+
+    @staticmethod
+    def _source_prose_score(snippet: str) -> int:
+        """Rank real paragraphs, without reconstructing or translating a quote."""
+        text = (snippet or "").strip()
+        sentences = min(len(re.findall(r"[.!?](?:\s|$)", text)), 3)
+        complete = bool(re.search(r"[.!?][\"'”»)]*$", text))
+        operators = len(re.findall(r"[=^{}]", text))
+        citations = len(re.findall(r"\[[^\]]+\]", text))
+        return 2 * sentences + int(complete) - operators - 2 * citations
 
     def _facts_lines(self, context: GenerationContext) -> str:
         if not context.facts:
@@ -522,6 +561,10 @@ class MaterialGenerator:
         requested_case = scenario or request.free_prompt or "Aucune contrainte numerique imposee."
         if pack is None:
             pack, _ = self._calculation_pack(request)
+        if request.language == "en":
+            from .exercise_english import english_exercise_template
+            return english_exercise_template(request, title, pack, requested_case,
+                                              self._source_lines(context, pack.family, "en"))
         # Énoncé shows INPUTS only (no computed results -> the answer is not
         # spoiled); the corrige holds the verified worked solution.
         display_pack = replace(pack, assumptions=[item for item in pack.assumptions if not item.startswith("Moteur canonique")])
@@ -2160,6 +2203,11 @@ Regles strictes:
             "- The demonstration must explain WHY the formula holds (no-arbitrage, "
             "replication, quantile), not just restate the answer."
         )
+        structure_rule = (
+            "Structure: Desk brief / Problem / Given data and assumptions / Questions / Verified solution / Assessment rubric / References."
+            if language == "en" else
+            "Structure: Enonce (contexte de desk) / Donnees fournies / Questions / Corrige / Sources."
+        )
         return f"""
 You are a {role} for ThePricingLibrary.
 Language: {language}.
@@ -2172,6 +2220,7 @@ Non-negotiable rules:
 - Ground the material in the retrieved context.
 - If the context does not support a specific formula or market fact, say so.
 - Keep a professional market-finance tone.
+- Keep the requested language for instructional prose, headings, questions, answers and the rubric. Genuine source quotations retain their original language and must be labelled as quotations.
 - Stay honest about grounding WITHOUT exposing machinery: do not fabricate a
   book fact the context does not support; if something is your own reasoning
   rather than from a cited book, phrase it plainly as reasoning. Do NOT print
@@ -2189,7 +2238,7 @@ Non-negotiable rules:
 - Never introduce a formula that is not already in the draft or the sources.
 - Never invent a source or a [Sx] marker that is not in the retrieved context.
 - Improve clarity and vary the phrasing; adapt the tone to the requested level.
-  Structure: Enonce (contexte de desk) / Donnees fournies / Questions / Corrige / Sources.
+  {structure_rule}
 - The ENONCE must contain ONLY the given inputs and the questions. Do NOT print any
   computed result (price, d1, DV01, CS01, VaR, payoff, P&L) before the Corrige —
   otherwise there is no exercise left to solve. All results live in the Corrige.

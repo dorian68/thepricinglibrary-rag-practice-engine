@@ -1,0 +1,74 @@
+{
+  "schemaVersion": "tpl.monte-carlo.analysis.v1",
+  "engineVersion": "1.0.0",
+  "rng": {
+    "algorithm": "park_miller_16807",
+    "normalTransform": "box_muller_cosine",
+    "modulus": 2147483647,
+    "multiplier": 16807,
+    "seedDomain": [1, 2147483646]
+  },
+  "modes": ["risk_physical", "pricing_risk_neutral"],
+  "measures": {
+    "risk_physical": "P",
+    "pricing_risk_neutral": "Q"
+  },
+  "dayCounts": ["ACT/365F"],
+  "methods": ["none", "antithetic", "control_variate"],
+  "optionTypes": ["call", "put"],
+  "payoffTypes": ["european", "arithmetic_asian"],
+  "positions": ["long", "short"],
+  "confidenceLevels": [0.95, 0.99],
+  "limits": {
+    "maxInputBytes": 1000000,
+    "minSpot": 1e-8,
+    "maxSpot": 1000000000000,
+    "minStrike": 1e-8,
+    "maxStrike": 1000000000000,
+    "minVolatility": 0,
+    "maxVolatility": 5,
+    "minMaturityYears": 0.0000027397260273972603,
+    "maxMaturityYears": 30,
+    "minRate": -1,
+    "maxRate": 1,
+    "minPhysicalDrift": -2,
+    "maxPhysicalDrift": 2,
+    "minPaths": 100,
+    "maxPaths": 50000,
+    "minTimeSteps": 1,
+    "maxTimeSteps": 366,
+    "maxSamplePaths": 24,
+    "minHistogramBins": 10,
+    "maxHistogramBins": 80,
+    "maxQuantity": 1000000,
+    "minContractMultiplier": 1e-8,
+    "maxContractMultiplier": 1000000000000,
+    "maxCurrencyLength": 3
+  },
+  "riskConvention": {
+    "pnl": "position_sign * quantity * contract_multiplier * (terminal_spot - initial_spot)",
+    "loss": "-pnl",
+    "quantile": "linear_type_7",
+    "valueAtRisk": "max(0, confidence_quantile_of_loss)",
+    "expectedShortfall": "max(0, arithmetic_mean_of_worst_ceil((1-confidence)*paths)_losses)",
+    "reportedUnits": "portfolio_currency_amount"
+  },
+  "pricingConvention": {
+    "measure": "risk_neutral_Q",
+    "drift": "risk_free_rate_minus_dividend_yield",
+    "discounting": "exp(-risk_free_rate * maturity_years)",
+    "asianAverage": "arithmetic_mean_of_monitoring_spots_excluding_time_zero",
+    "confidenceInterval": "estimate_plus_or_minus_1.96_standard_errors",
+    "antitheticStandardError": "sample_standard_error_of_pair_means",
+    "controlVariate": "discounted_terminal_spot_with_known_mean_spot_times_exp(-dividend_yield*maturity_years)"
+  },
+  "exports": {
+    "terminalCsvSchema": "tpl.monte-carlo.terminals.v1",
+    "pathsCsvSchema": "tpl.monte-carlo.paths.v1",
+    "terminalCsvHeaders": ["schemaVersion", "engineVersion", "analysisId", "mode", "pathIndex", "terminalSpot", "discountedPayoff", "pnl", "loss"],
+    "pathsCsvHeaders": ["schemaVersion", "engineVersion", "analysisId", "mode", "pathIndex", "step", "timeYears", "spot"],
+    "lineEnding": "LF",
+    "finalNewline": true,
+    "numericFormat": "finite_decimal_12"
+  }
+}

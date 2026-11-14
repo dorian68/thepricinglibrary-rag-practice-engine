@@ -1,0 +1,60 @@
+{
+  "method": "Independent Python stdlib implementation; math.erf CDF, Park-Miller RNG, Box-Muller cosine, sample standard deviation. Allows 1e-3 USD for the canonical JS CDF approximation.",
+  "cases": [
+    {
+      "name": "Low volatility",
+      "mu": 0.05,
+      "sigma": 0.14,
+      "seed": 101,
+      "pathCount": 2000,
+      "meanPnl": 278.8962814352888,
+      "pnlSd": 675.666076116462,
+      "worst": -4552.434782635806,
+      "win": 81.5
+    },
+    {
+      "name": "Moderate volatility",
+      "mu": 0.02,
+      "sigma": 0.2,
+      "seed": 202,
+      "pathCount": 2000,
+      "meanPnl": -198.9107187147469,
+      "pnlSd": 1253.4044499588952,
+      "worst": -8232.927751425195,
+      "win": 64.0
+    },
+    {
+      "name": "High volatility",
+      "mu": 0,
+      "sigma": 0.42,
+      "seed": 303,
+      "pathCount": 2000,
+      "meanPnl": -2368.8768675899414,
+      "pnlSd": 3351.037431071202,
+      "worst": -19803.06033421805,
+      "win": 34.95
+    },
+    {
+      "name": "Positive drift",
+      "mu": 0.08,
+      "sigma": 0.1,
+      "seed": 404,
+      "pathCount": 2000,
+      "meanPnl": 483.1395555020862,
+      "pnlSd": 339.1230248810676,
+      "worst": -2257.4874411845044,
+      "win": 92.8
+    },
+    {
+      "name": "Lower drift",
+      "mu": 0.03,
+      "sigma": 0.12,
+      "seed": 505,
+      "pathCount": 2000,
+      "meanPnl": 422.75704147906805,
+      "pnlSd": 449.1662348350506,
+      "worst": -2724.451173659203,
+      "win": 89.25
+    }
+  ]
+}

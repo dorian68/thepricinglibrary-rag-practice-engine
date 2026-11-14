@@ -263,6 +263,7 @@ class ApiSecurity:
     """Production auth/RBAC and rate-limit policy for the FastAPI surface."""
 
     _PUBLIC_MUTATIONS = {
+        "/interview/preview/check",
         "/calculate/practice",
         "/platform/bug-reports",
         "/platform/newsletter",
@@ -376,6 +377,12 @@ class ApiSecurity:
         if method in {"HEAD", "OPTIONS"}:
             return PUBLIC
         if method == "GET":
+            if path == "/interview/pilot/metrics":
+                return OPERATOR
+            if path.startswith("/interview/"):
+                if path in {"/interview/catalog", "/interview/cases/call-quote"}:
+                    return PUBLIC
+                return IDENTITY
             if path == "/platform/exercises" or path.startswith("/platform/exercises/"):
                 return IDENTITY
             if path.startswith("/courses/") and path.endswith("/script"):
@@ -396,6 +403,10 @@ class ApiSecurity:
             return PUBLIC
         if path == "/billing/webhook":
             return WEBHOOK
+        if path.startswith("/interview/") and path != "/interview/preview/check":
+            return IDENTITY
+        if path.startswith("/platform/courses/") and path.endswith("/position"):
+            return IDENTITY
         if path in {
             "/billing/checkout",
             "/products/market-finance-starter-kit/checkout",
@@ -499,7 +510,7 @@ class ApiSecurity:
 
     def _enforce_entitlement(self, request: Request, *, role: str | None) -> None:
         required_plan = self.required_plan_for(request.method, request.url.path)
-        if not required_plan or not self.settings.security_enforced or role == OPERATOR:
+        if not required_plan or not (self.settings.security_enforced or self.settings.enforce_entitlements) or role == OPERATOR:
             return
         identity = getattr(request.state, "tpl_identity", None)
         if identity is None:
@@ -605,6 +616,7 @@ class ApiSecurity:
                 if self.settings.auth_token_secret
                 else "disabled"
             ),
+            "entitlements_enforced": self.settings.security_enforced or self.settings.enforce_entitlements,
             "rate_limit_per_min": self.settings.rate_limit_per_min,
             "rate_limit_backend": "sqlite" if self._limiter else "disabled",
         }

@@ -20,6 +20,7 @@ from .observability import ProductionMetrics
 from .platform_store import PlatformStore
 from .calculators import ExerciseInputError
 from .security import MEMBER, ApiSecurity, AuthenticatedIdentity
+from .interview_lab import register_interview_routes
 
 
 COURSE_SCRIPT_FILES = {
@@ -35,6 +36,11 @@ COURSE_SCRIPT_FILES = {
     "monte-carlo": "monte-carlo-pricing.md",
     "stochastic": "stochastic-calculus-for-hedging.md",
     "structured-products": "structured-products-autocall.md",
+}
+COURSE_MODULE_COUNTS = {
+    "black-scholes":8,"yield-curves":9,"greeks":9,"rates-swaps":9,
+    "fixed-income-bonds":8,"implied-vol":9,"credit-derivatives":8,
+    "market-risk-var":9,"exotics":9,"monte-carlo":10,"stochastic":10,"structured-products":10,
 }
 
 if len(set(COURSE_SCRIPT_FILES.values())) != len(COURSE_SCRIPT_FILES):
@@ -363,6 +369,11 @@ class ProgressBody(BaseModel):
     ref: str = Field(min_length=1, max_length=240)
     score: float | None = Field(default=None, ge=0, le=1000000)
     meta: dict | None = None
+
+
+class CoursePositionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    module_index: int = Field(strict=True, ge=0, le=63)
 
 
 class SurvivalBody(BaseModel):
@@ -1494,6 +1505,7 @@ def create_app(services: Services | None = None) -> FastAPI:
 
     # ===================== PLATFORM (community/jobs/blog/...) =============
     platform = PlatformStore(services.settings.db_path)
+    register_interview_routes(app, services.settings.db_path, security)
 
     def platform_identity(request: Request) -> AuthenticatedIdentity | None:
         """Return the verified browser identity for user-owned platform data.
@@ -1628,6 +1640,26 @@ def create_app(services: Services | None = None) -> FastAPI:
         return platform.subscribe(body.email, body.source)
 
     # progress + leaderboard
+    @app.put("/platform/courses/{course_id}/position")
+    def course_position_record(course_id: str, body: CoursePositionBody, request: Request, response: Response) -> dict:
+        identity = platform_identity(request)
+        if identity is None:
+            raise HTTPException(status_code=401, detail="A signed learner session is required.")
+        if course_id not in COURSE_MODULE_COUNTS:
+            raise HTTPException(status_code=404, detail="Course not found.")
+        if body.module_index >= COURSE_MODULE_COUNTS[course_id]:
+            raise HTTPException(status_code=422, detail="Module index is outside this course.")
+        is_free_preview = course_id == "black-scholes" and body.module_index < 2
+        if (services.settings.security_enforced or services.settings.enforce_entitlements) and identity.role != "operator" and not is_free_preview:
+            minimum = security.required_plan_for("GET", f"/courses/{course_id}/script")
+            entitlement = services.store.get_entitlement_by_user_id(identity.user_id) or {}
+            rank = security._PLAN_RANK
+            if entitlement.get("status") != "active" or rank.get(str(entitlement.get("plan")),0) < rank.get(minimum,3):
+                raise HTTPException(status_code=403, detail=f"Active {minimum} entitlement required for this module.")
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["Vary"] = "Authorization"
+        return {"position": platform.course_position(identity.user_id, course_id, body.module_index)}
+
     @app.post("/platform/progress")
     def progress_record(body: ProgressBody, request: Request) -> dict:
         identity = platform_identity(request)
@@ -1640,10 +1672,12 @@ def create_app(services: Services | None = None) -> FastAPI:
                                         ref=body.ref, score=trusted_score, meta=body.meta)
 
     @app.get("/platform/progress/{user_id}")
-    def progress_get(user_id: str, request: Request) -> dict:
+    def progress_get(user_id: str, request: Request, response: Response) -> dict:
         identity = platform_identity(request)
         if identity and user_id != identity.user_id:
             raise HTTPException(status_code=403, detail="Progress belongs to another account.")
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["Vary"] = "Authorization"
         return platform.progress_summary(user_id)
 
     @app.get("/platform/leaderboard")

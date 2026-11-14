@@ -1,0 +1,2 @@
+# Keep the original fixture bytes stable on Windows and Linux checkouts.
+*.json text eol=lf

@@ -74,6 +74,9 @@ class Settings:
     rate_limit_per_min: int = 0
     rate_limit_window_seconds: int = 60
     trust_proxy_headers: bool = False
+    # Permit signed local learner testing against real server-side plans while
+    # keeping the rest of local configuration/corpus behavior unchanged.
+    enforce_entitlements: bool = False
     # --- generation / retrieval pipeline modes (safe defaults) ------------
     # generation_mode: "template" (deterministic, zero API) | "llm" (LLM writer).
     # retrieval_mode:  "lexical" | "semantic" | "hybrid".
@@ -204,6 +207,7 @@ class Settings:
             rate_limit_per_min=int(os.environ.get("TPL_RATE_LIMIT_PER_MIN", "0")),
             rate_limit_window_seconds=int(os.environ.get("TPL_RATE_LIMIT_WINDOW_SECONDS", "60")),
             trust_proxy_headers=_env_bool("TPL_TRUST_PROXY_HEADERS", False),
+            enforce_entitlements=_env_bool("TPL_ENFORCE_ENTITLEMENTS", False),
             generation_mode=generation_mode,
             retrieval_mode=retrieval_mode,
             embedding_provider=embedding_provider,

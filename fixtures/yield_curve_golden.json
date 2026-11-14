@@ -1,0 +1,103 @@
+{
+  "schema": "tpl.yield-curve.golden-fixture.v1",
+  "conventions": {
+    "fixedLegFrequency": 1,
+    "interpolation": "log-linear discount factors",
+    "extrapolation": "forbidden"
+  },
+  "tolerances": {
+    "discountFactor": 1e-10,
+    "rate": 1e-9,
+    "repricing": 1e-10,
+    "interpolation": 1e-12
+  },
+  "cases": [
+    {
+      "id": "deposit_fra",
+      "instruments": [
+        { "type": "deposit", "maturity": 0.5, "quote": 0.05 },
+        { "type": "fra", "start": 0.5, "maturity": 1.0, "quote": 0.0525 }
+      ],
+      "expectedAnchors": [
+        { "time": 0.5, "discountFactor": 0.975609756097561 },
+        { "time": 1.0, "discountFactor": 0.950655060752800 }
+      ],
+      "expectedContinuousZeros": [
+        { "time": 0.5, "rate": 0.049385225180743 },
+        { "time": 1.0, "rate": 0.050603994374872 }
+      ]
+    },
+    {
+      "id": "deposit_future_with_convexity",
+      "instruments": [
+        { "type": "deposit", "maturity": 0.5, "quote": 0.05 },
+        { "type": "future", "start": 0.5, "maturity": 1.0, "futurePrice": 94.5, "convexityAdjustment": 0.0025 }
+      ],
+      "expectedFraEquivalentRate": 0.0525,
+      "expectedAnchors": [
+        { "time": 0.5, "discountFactor": 0.975609756097561 },
+        { "time": 1.0, "discountFactor": 0.950655060752800 }
+      ]
+    },
+    {
+      "id": "flat_sparse_swaps",
+      "instruments": [
+        { "type": "swap", "maturity": 1, "quote": 0.05 },
+        { "type": "swap", "maturity": 2, "quote": 0.05 },
+        { "type": "swap", "maturity": 3, "quote": 0.05 },
+        { "type": "swap", "maturity": 5, "quote": 0.05 },
+        { "type": "swap", "maturity": 10, "quote": 0.05 }
+      ],
+      "expectedAnchors": [
+        { "time": 1, "discountFactor": 0.952380952380952 },
+        { "time": 2, "discountFactor": 0.907029478458051 },
+        { "time": 3, "discountFactor": 0.863837598531475 },
+        { "time": 5, "discountFactor": 0.783526166468461 },
+        { "time": 10, "discountFactor": 0.613913253540759 }
+      ],
+      "expectedAnnualZero": 0.05,
+      "expectedContinuousForward": 0.048790164169432
+    },
+    {
+      "id": "current_sparse_swaps",
+      "instruments": [
+        { "type": "swap", "maturity": 1, "quote": 0.03 },
+        { "type": "swap", "maturity": 2, "quote": 0.032 },
+        { "type": "swap", "maturity": 3, "quote": 0.0335 },
+        { "type": "swap", "maturity": 5, "quote": 0.0355 },
+        { "type": "swap", "maturity": 10, "quote": 0.038 }
+      ],
+      "expectedAnchors": [
+        { "time": 1, "discountFactor": 0.970873786407770 },
+        { "time": 2, "discountFactor": 0.938887634529991 },
+        { "time": 3, "discountFactor": 0.905682624478554 },
+        { "time": 5, "discountFactor": 0.839305280384191 },
+        { "time": 10, "discountFactor": 0.686416996284079 }
+      ],
+      "expectedInterpolatedNodes": [
+        { "time": 4, "discountFactor": 0.871862494363109 },
+        { "time": 6, "discountFactor": 0.806220004629384 }
+      ],
+      "expectedSegmentContinuousForwards": [
+        { "start": 0, "end": 1, "rate": 0.029558802241542 },
+        { "start": 1, "end": 2, "rate": 0.033500669730048 },
+        { "start": 2, "end": 3, "rate": 0.036006866445941 },
+        { "start": 3, "end": 5, "rate": 0.038057219040557 },
+        { "start": 5, "end": 10, "rate": 0.040217838626034 }
+      ]
+    },
+    {
+      "id": "negative_rates",
+      "instruments": [
+        { "type": "deposit", "maturity": 1, "quote": -0.01 },
+        { "type": "swap", "maturity": 2, "quote": -0.005 }
+      ],
+      "expectedAnchors": [
+        { "time": 1, "discountFactor": 1.010101010101010 },
+        { "time": 2, "discountFactor": 1.010101010101011 }
+      ],
+      "expectedFirstContinuousZero": -0.010050335853502,
+      "negativeForwardAllowed": true
+    }
+  ]
+}

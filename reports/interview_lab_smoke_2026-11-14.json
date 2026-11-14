@@ -1,0 +1,101 @@
+{
+  "status": "PASS",
+  "scope": "Local real FastAPI handlers and SQLite; signed isolated learners, not public sales evidence.",
+  "checks_passed": 23,
+  "checks": [
+    {
+      "check": "six English authored cases",
+      "status": "PASS"
+    },
+    {
+      "check": "task has no solution or reference answers",
+      "status": "PASS"
+    },
+    {
+      "check": "account state requires signed identity",
+      "status": "PASS"
+    },
+    {
+      "check": "anonymous preview genuinely checks numbers without saving",
+      "status": "PASS"
+    },
+    {
+      "check": "signed pilot usable without a paid-course grant",
+      "status": "PASS"
+    },
+    {
+      "check": "paid courses remain entitlement-protected",
+      "status": "PASS"
+    },
+    {
+      "check": "onboarding produces a bounded session",
+      "status": "PASS"
+    },
+    {
+      "check": "first unseen answer saved before correction",
+      "status": "PASS"
+    },
+    {
+      "check": "duplicate submit preserves first attempt",
+      "status": "PASS"
+    },
+    {
+      "check": "request replay cannot overwrite the answer",
+      "status": "PASS"
+    },
+    {
+      "check": "put variant checks conceptual sign transfer",
+      "status": "PASS"
+    },
+    {
+      "check": "cross-account attempt access rejected",
+      "status": "PASS"
+    },
+    {
+      "check": "reasoning review remains explicitly self-reported",
+      "status": "PASS"
+    },
+    {
+      "check": "active time cannot exceed elapsed server time",
+      "status": "PASS"
+    },
+    {
+      "check": "progress separates attempts, numeric and transfer checks",
+      "status": "PASS"
+    },
+    {
+      "check": "second account has no inherited progress",
+      "status": "PASS"
+    },
+    {
+      "check": "learners cannot read operator pilot aggregates",
+      "status": "PASS"
+    },
+    {
+      "check": "pilot aggregates count recorded participation",
+      "status": "PASS"
+    },
+    {
+      "check": "pilot aggregates expose no learner identity or memo",
+      "status": "PASS"
+    },
+    {
+      "check": "public first lesson position saves without completion points",
+      "status": "PASS"
+    },
+    {
+      "check": "revealing a correction records exposure",
+      "status": "PASS"
+    },
+    {
+      "check": "private export contains original reasoning and limitations",
+      "status": "PASS"
+    },
+    {
+      "check": "fresh process restores exact task and both attempts",
+      "status": "PASS"
+    }
+  ],
+  "external_llm_calls": 0,
+  "real_payments": 0
+}

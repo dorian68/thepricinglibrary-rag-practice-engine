@@ -79,6 +79,7 @@ def main() -> None:
     data.mkdir(parents=True, exist_ok=True)
     os.environ.update({
         "TPL_ENVIRONMENT": "local",
+        "TPL_ENFORCE_ENTITLEMENTS": "true",
         "TPL_DATA_DIR": str(data),
         "TPL_DB_PATH": str(data / "pricinglibrary_rag.sqlite3"),
         "TPL_API_KEY": secrets.token_urlsafe(36),

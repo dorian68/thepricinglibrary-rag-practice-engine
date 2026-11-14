@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "tpl.vol-surface.contract.v1",
+  "engineVersion": "1.0.0",
+  "inputSchemaVersion": "tpl.vol-surface.input.v1",
+  "analysisSchemaVersion": "tpl.vol-surface.analysis.v1",
+  "pointsCsvSchemaVersion": "tpl.vol-surface.points.v1",
+  "diagnosticsCsvSchemaVersion": "tpl.vol-surface.diagnostics.v1",
+  "interpolationMode": "total_variance_bilinear",
+  "sourceKinds": ["deterministic_fixture", "user_csv"],
+  "limits": {
+    "minMaturities": 2,
+    "minLogMoneynessPoints": 5,
+    "maxQuotes": 500,
+    "minMaturity": 0.0027397260273972603,
+    "maxMaturity": 30,
+    "minForward": 0.000001,
+    "maxForward": 1000000000,
+    "minDiscountFactor": 0.000001,
+    "maxDiscountFactor": 2,
+    "minLogMoneyness": -2,
+    "maxLogMoneyness": 2,
+    "minVolatility": 0.0001,
+    "maxVolatility": 5
+  },
+  "tolerances": { "numeric": 1e-12, "arbitrage": 1e-10 },
+  "inputKeys": ["schemaVersion", "surfaceName", "asOfDate", "sourceKind", "interpolationMode", "selectedMaturity", "selectedLogMoneyness", "quotes"],
+  "quoteKeys": ["maturity", "forward", "discountFactor", "logMoneyness", "impliedVolatility", "bidVolatility", "askVolatility"],
+  "pointsCsvHeaders": ["schemaVersion", "engineVersion", "analysisId", "surfaceName", "asOfDate", "sourceKind", "maturityYears", "forward", "discountFactor", "logMoneyness", "strike", "impliedVolatility", "bidVolatility", "askVolatility", "totalVariance", "normalizedCall", "discountedCallPrice"],
+  "diagnosticsCsvHeaders": ["schemaVersion", "engineVersion", "analysisId", "surfaceName", "asOfDate", "status", "severity", "code", "maturityYears", "logMoneyness", "message"],
+  "conventions": {
+    "coordinate": "k = ln(K/F)",
+    "variance": "w(k,T) = impliedVolatility^2 * T",
+    "interpolation": "piecewise linear in log-moneyness and maturity on total variance; no extrapolation",
+    "pricing": "forward-normalized undiscounted Black call, then multiplied by discountFactor * forward",
+    "arbitrage": "discrete diagnostics on submitted nodes; not a proof between nodes"
+  },
+  "limitations": [
+    "Educational deterministic surface-quality analysis; inputs are user assumptions or a labelled fixture, never live quotes.",
+    "Diagnostics are discrete necessary checks on submitted nodes, not a continuous global arbitrage proof.",
+    "Interpolation is inside the rectangular grid only; no extrapolation, smoothing, sorting, filling or clipping is performed.",
+    "No SVI/SABR/Heston calibration, Dupire local volatility, stochastic rates, dividends, American exercise or trading signal is inferred."
+  ]
+}

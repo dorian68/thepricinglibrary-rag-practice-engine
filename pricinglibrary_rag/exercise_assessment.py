@@ -8,6 +8,9 @@ from .schemas import ExerciseRequest
 
 
 def build_assessment(request: ExerciseRequest, pack: CalculationPack) -> dict:
+    if request.language == "en":
+        from .exercise_english import build_english_assessment
+        return build_english_assessment(request, pack)
     count = request.number_of_questions
     context = request.product or request.topic or pack.title
     explanations = "\n".join(f"- {item}" for item in pack.assumptions if not item.startswith("Moteur canonique"))
@@ -75,21 +78,29 @@ def build_assessment(request: ExerciseRequest, pack: CalculationPack) -> dict:
 
 
 def assessment_markdown(assessment: dict) -> tuple[str, str, str]:
+    english = assessment.get("language") == "en"
     questions = "\n".join(f'{q["number"]}. {q["prompt"]}' for q in assessment["questions"])
-    answers = "\n\n".join(f'### Réponse {q["number"]}\n\n{q["answer"]}' for q in assessment["questions"])
-    rubric = "| Question | Critères de réussite | Points |\n| --- | --- | ---: |\n" + "\n".join(
+    answer_label = "Answer" if english else "Réponse"
+    answers = "\n\n".join(f'### {answer_label} {q["number"]}\n\n{q["answer"]}' for q in assessment["questions"])
+    rubric = ("| Question | Success criteria | Points |\n" if english else "| Question | Critères de réussite | Points |\n") + "| --- | --- | ---: |\n" + "\n".join(
         f'| {q["number"]} | {q["criterion"].replace("|", "/")} | {q["points"]} |' for q in assessment["questions"])
-    rubric += "\n\n**Total : 100 points.** Auto-évaluation avec corrigé ; aucune note automatique n'est revendiquée."
+    rubric += ("\n\n**Total: 100 points.** Self-review against the worked correction; no automatic grade is claimed."
+               if english else "\n\n**Total : 100 points.** Auto-évaluation avec corrigé ; aucune note automatique n'est revendiquée.")
     return questions, answers, rubric
 
 
 def assessment_matches_document(content: str, assessment: dict) -> bool:
+    if assessment.get("language") == "en" and not all(
+        heading in content for heading in ("## Desk brief", "## Problem", "## Verified solution", "## Assessment rubric")
+    ):
+        return False
     section = re.search(r"## Questions\n([\s\S]*?)\n---", content)
     if not section:
         return False
     prompts = re.findall(r"^\d+\. (.+)$", section.group(1), re.M)
     expected = assessment["questions"]
-    answers = re.findall(r"^### Réponse (\d+)", content, re.M)
+    label = "Answer" if assessment.get("language") == "en" else "Réponse"
+    answers = re.findall(r"^### " + label + r" (\d+)", content, re.M)
     rows = re.findall(r"^\| (\d+) \| [^\n]+ \| (\d+) \|$", content, re.M)
     return (prompts == [q["prompt"] for q in expected]
             and answers == [str(q["number"]) for q in expected]

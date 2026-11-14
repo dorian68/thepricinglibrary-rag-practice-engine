@@ -269,7 +269,7 @@ class PracticeCalculator:
             self._extract_number(lower, r"(?:barriere|barrière|barrier)\s+(?:down-and-out|down and out|up-and-out|up and out|knock-out|knock out|ko)\s*[:=]?\s*([+-]?\s*\d+(?:[.,]\d+)?)")
             or self._extract_number(lower, r"(?:barriere|barrière|barrier)\s+(?:de|a|à)\s*([+-]?\s*\d+(?:[.,]\d+)?)")
         )
-        notional = self._extract_m_amount(lower, r"notionnel\s*(?:eur\s*)?([+-]?\s*\d+(?:[.,]\d+)?)\s*m")
+        notional = self._extract_m_amount(lower, r"(?:notionnel|notional)\s*(?:eur\s*)?([+-]?\s*\d+(?:[.,]\d+)?)\s*m")
         if None in (strike, barrier, notional):
             return None
         # Payoff multiplier by asset convention, so it never overstates ~S0-fold:
@@ -301,7 +301,7 @@ class PracticeCalculator:
                     f"DOC = {c_bs:.4f} - {c_di:.4f} = {c_do:.4f} par unite (soit {c_do * multiplier:,.0f} sur le notionnel)",
                     "Vraie valeur du knock-out (formule fermee, pas le payoff terminal): proche du vanille quand la barriere est lointaine, fortement decotee quand le spot s'en approche.",
                 ))
-        for raw in re.findall(r"spot\s*(?:a|à)\s*([+-]?\d+(?:[.,]\d+)?)", lower)[:6]:
+        for raw in re.findall(r"spot\s*(?:at|a|à)\s*([+-]?\d+(?:[.,]\d+)?)", lower)[:6]:
             final_spot = self._parse_float(raw)
             if final_spot is None:
                 continue
