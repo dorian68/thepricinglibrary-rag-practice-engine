@@ -30,6 +30,11 @@ import uuid
 from typing import Any, Callable, Iterable, Iterator
 
 from .factory import Services
+from .black_scholes import BLACK_SCHOLES_INPUT_SCHEMA, analyze_black_scholes
+from .binomial import BINOMIAL_INPUT_SCHEMA, analyze_binomial
+from .bond import BOND_INPUT_SCHEMA, analyze_bond
+from .vol_surface import INPUT_SCHEMA as VOL_SURFACE_INPUT_SCHEMA, analyze_vol_surface
+from .monte_carlo import INPUT_SCHEMA_VERSION as MONTE_CARLO_INPUT_SCHEMA, MonteCarloError, run_monte_carlo
 from .schemas import ExerciseRequest, SearchRequest
 
 # ---------------------------------------------------------------------------
@@ -71,7 +76,7 @@ ALLOWED_UI_BLOCKS = {
 }
 
 # Tools the agent may drive on the frontend (client-side, non-sensitive).
-KNOWN_TOOLS = {"bs-pricer", "payoff", "mc", "iv-calc", "calib", "volsurface"}
+KNOWN_TOOLS = {"bs-pricer", "payoff", "mc", "iv-calc", "calib", "binomial", "bond", "curve", "volsurface"}
 
 
 def _env_int(name: str, default: int) -> int:
@@ -108,140 +113,123 @@ def _new_id(prefix: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Black-Scholes (verified numbers for the call-put parity demo etc.)
-# Inputs use the SAME human units as the frontend BS pricer:
-#   r, q, sigma in percent ; T in days.
+# Black-Scholes AG-UI compatibility adapter. Human inputs retain the historical
+# percent/day units, but every result delegates to the strict F-CAL10 engine.
 # ---------------------------------------------------------------------------
-def _norm_cdf(x: float) -> float:
-    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+def _canonical_bs_input(S: Any, K: Any, r: Any, q: Any, sigma: Any, T_days: Any, option_type: str = "call") -> dict:
+    return {
+        "schemaVersion": BLACK_SCHOLES_INPUT_SCHEMA,
+        "quoteMode": "volatility", "optionType": option_type,
+        "spot": S, "strike": K, "maturityYears": T_days / 365.0 if type(T_days) in (int, float) and not isinstance(T_days, bool) else T_days,
+        "dayCount": "ACT/365F",
+        "riskFreeRate": r / 100.0 if type(r) in (int, float) and not isinstance(r, bool) else r,
+        "dividendYield": q / 100.0 if type(q) in (int, float) and not isinstance(q, bool) else q,
+        "volatility": sigma / 100.0 if type(sigma) in (int, float) and not isinstance(sigma, bool) else sigma,
+        "marketPrice": None, "currency": "EUR", "position": "long", "quantity": 1.0, "multiplier": 1.0,
+        "shocks": {"spotPct": 10.0, "volPoints": 5.0, "days": 30.0},
+    }
+
+
+def _legacy_bs(result: dict) -> dict:
+    call, put = result["call"], result["put"]
+    return {
+        "call": call["unitPrice"], "put": put["unitPrice"],
+        "delta_call": call["greeks"]["delta"], "delta_put": put["greeks"]["delta"],
+        "gamma": call["greeks"]["gamma"], "vega": call["greeks"]["vega"],
+        "theta_call": call["greeks"]["theta"], "theta_put": put["greeks"]["theta"],
+        "rho_call": call["greeks"]["rho"], "rho_put": put["greeks"]["rho"],
+        "parity_lhs": result["parity"]["lhs"], "parity_rhs": result["parity"]["rhs"],
+        "parity_holds": result["parity"]["holds"],
+        "degenerate": call["limit"] != "closed_form",
+        "analysis_id": result["analysisId"], "engine_version": result["engineVersion"],
+        "units": result["conventions"],
+    }
 
 
 def black_scholes(S: float, K: float, r: float, q: float, sigma: float, T_days: float) -> dict:
-    r_ = r / 100.0
-    q_ = q / 100.0
-    vol = sigma / 100.0
-    T = max(T_days, 0.0) / 365.0
-    if T <= 0 or vol <= 0 or S <= 0 or K <= 0:
-        intrinsic_call = max(S - K, 0.0)
-        intrinsic_put = max(K - S, 0.0)
-        return {
-            "call": round(intrinsic_call, 4),
-            "put": round(intrinsic_put, 4),
-            "delta_call": 1.0 if S > K else 0.0,
-            "parity_lhs": round(intrinsic_call - intrinsic_put, 6),
-            "parity_rhs": round(S - K, 6),
-            "degenerate": True,
-        }
-    d1 = (math.log(S / K) + (r_ - q_ + 0.5 * vol * vol) * T) / (vol * math.sqrt(T))
-    d2 = d1 - vol * math.sqrt(T)
-    disc_r = math.exp(-r_ * T)
-    disc_q = math.exp(-q_ * T)
-    call = S * disc_q * _norm_cdf(d1) - K * disc_r * _norm_cdf(d2)
-    put = K * disc_r * _norm_cdf(-d2) - S * disc_q * _norm_cdf(-d1)
-    parity_lhs = call - put
-    parity_rhs = S * disc_q - K * disc_r
-    return {
-        "call": round(call, 4),
-        "put": round(put, 4),
-        "delta_call": round(disc_q * _norm_cdf(d1), 4),
-        "delta_put": round(-disc_q * _norm_cdf(-d1), 4),
-        "vega": round(S * disc_q * math.exp(-0.5 * d1 * d1) / math.sqrt(2 * math.pi) * math.sqrt(T) / 100.0, 4),
-        "parity_lhs": round(parity_lhs, 6),
-        "parity_rhs": round(parity_rhs, 6),
-        "parity_holds": abs(parity_lhs - parity_rhs) < 1e-6,
-        "degenerate": False,
-    }
+    return _legacy_bs(analyze_black_scholes(_canonical_bs_input(S, K, r, q, sigma, T_days)))
 
 
 def bs_full(S: float, K: float, r: float, q: float, sigma: float, T_days: float) -> dict:
-    """Full Black-Scholes price + Greeks. Units: r,q,sigma percent; T days."""
-    r_, q_, vol, T = r / 100.0, q / 100.0, sigma / 100.0, max(T_days, 0.0) / 365.0
-    if T <= 0 or vol <= 0 or S <= 0 or K <= 0:
-        return {"call": round(max(S - K, 0.0), 4), "put": round(max(K - S, 0.0), 4), "degenerate": True}
-    sq = math.sqrt(T)
-    d1 = (math.log(S / K) + (r_ - q_ + 0.5 * vol * vol) * T) / (vol * sq)
-    d2 = d1 - vol * sq
-    pdf = math.exp(-0.5 * d1 * d1) / math.sqrt(2 * math.pi)
-    disc_r, disc_q = math.exp(-r_ * T), math.exp(-q_ * T)
-    Nd1, Nd2 = _norm_cdf(d1), _norm_cdf(d2)
-    call = S * disc_q * Nd1 - K * disc_r * Nd2
-    put = K * disc_r * _norm_cdf(-d2) - S * disc_q * _norm_cdf(-d1)
-    return {
-        "call": round(call, 4), "put": round(put, 4),
-        "delta_call": round(disc_q * Nd1, 4), "delta_put": round(-disc_q * _norm_cdf(-d1), 4),
-        "gamma": round(disc_q * pdf / (S * vol * sq), 6),
-        "vega": round(S * disc_q * pdf * sq / 100.0, 4),  # per 1 vol point
-        "theta_call": round((-S * disc_q * pdf * vol / (2 * sq) - r_ * K * disc_r * Nd2 + q_ * S * disc_q * Nd1) / 365.0, 4),
-        "theta_put": round((-S * disc_q * pdf * vol / (2 * sq) + r_ * K * disc_r * _norm_cdf(-d2) - q_ * S * disc_q * _norm_cdf(-d1)) / 365.0, 4),
-        "rho_call": round(K * T * disc_r * Nd2 / 100.0, 4), "rho_put": round(-K * T * disc_r * _norm_cdf(-d2) / 100.0, 4),
-        "d1": round(d1, 4), "d2": round(d2, 4), "degenerate": False,
-    }
+    return black_scholes(S, K, r, q, sigma, T_days)
 
 
-def greeks_sensitivity(greek: str, param: str, base: dict, points: int = 25) -> dict:
-    """Series of a chosen Greek as one parameter varies. param in spot|vol|time|strike."""
-    greek = greek if greek in ("delta", "gamma", "vega", "theta", "rho", "call", "put") else "vega"
-    S, K = float(base.get("S", 100)), float(base.get("K", 100))
-    r, q = float(base.get("r", 2)), float(base.get("q", 0))
-    sigma, T = float(base.get("sigma", 20)), float(base.get("T", 180))
-    ranges = {
-        "spot": (S * 0.6, S * 1.4), "vol": (5, 60), "time": (5, 365), "strike": (K * 0.6, K * 1.4),
-    }
-    lo, hi = ranges.get(param, ranges["spot"])
+def greeks_sensitivity(greek: str, param: str, base: dict, points: int = 21) -> dict:
+    if greek not in ("delta", "gamma", "vega", "theta", "rho", "call", "put"):
+        raise ValueError("greek is unsupported.")
+    if param not in ("spot", "vol", "time", "strike"):
+        raise ValueError("param is unsupported.")
+    if points != 21:
+        raise ValueError("points must equal the canonical sensitivity count 21.")
+    canonical = _canonical_bs_input(base["S"], base["K"], base["r"], base["q"], base["sigma"], base["T"])
+    initial = analyze_black_scholes(canonical)
+    if param == "spot":
+        xs = [row["x"] for row in initial["sensitivities"]["spot"]]
+    elif param == "vol":
+        xs = [row["x"] * 100.0 for row in initial["sensitivities"]["volatility"]]
+    elif param == "time":
+        xs = [row["x"] * 365.0 for row in initial["sensitivities"]["maturity"]]
+    else:
+        xs = [base["K"] * (0.6 + 0.8 * index / (points - 1)) for index in range(points)]
     series = []
-    for i in range(points):
-        x = lo + (hi - lo) * i / (points - 1)
-        p = {"S": S, "K": K, "r": r, "q": q, "sigma": sigma, "T": T}
-        p[{"spot": "S", "vol": "sigma", "time": "T", "strike": "K"}[param if param in ("spot", "vol", "time", "strike") else "spot"]] = x
-        g = bs_full(p["S"], p["K"], p["r"], p["q"], p["sigma"], p["T"])
-        key = {"delta": "delta_call", "theta": "theta_call", "rho": "rho_call", "call": "call", "put": "put"}.get(greek, greek)
-        series.append({"x": round(x, 4), "y": g.get(key, g.get(greek, 0))})
-    return {"greek": greek, "param": param, "series": series}
-
-
-def _gauss(rng_state: list) -> float:
-    # Box-Muller using a deterministic LCG seeded state (no external deps).
-    def nxt():
-        rng_state[0] = (1103515245 * rng_state[0] + 12345) & 0x7FFFFFFF
-        return rng_state[0] / 0x7FFFFFFF
-    u1, u2 = max(nxt(), 1e-9), nxt()
-    return math.sqrt(-2 * math.log(u1)) * math.cos(2 * math.pi * u2)
+    for x in xs:
+        changed = dict(base)
+        changed[{"spot": "S", "vol": "sigma", "time": "T", "strike": "K"}[param]] = x
+        row = analyze_black_scholes(_canonical_bs_input(changed["S"], changed["K"], changed["r"], changed["q"], changed["sigma"], changed["T"]))
+        selected = row["call"] if greek not in ("put",) else row["put"]
+        y = selected["unitPrice"] if greek in ("call", "put") else selected["greeks"][greek]
+        series.append({"x": x, "y": y})
+    return {"greek": greek, "param": param, "series": series, "engineVersion": initial["engineVersion"]}
 
 
 def mc_simulation(S: float, mu: float, sigma: float, T_days: float, N: int = 400, steps: int = 50, seed: int = 7) -> dict:
-    """Pedagogical GBM simulation: sample paths, terminal distribution, stats."""
-    N = max(50, min(int(N), 2000))
-    steps = max(10, min(int(steps), 80))
-    mu_, vol, T = mu / 100.0, sigma / 100.0, max(T_days, 1) / 365.0
-    dt = T / steps
-    rng = [int(seed) & 0x7FFFFFFF or 7]
-    terminals = []
-    sample_paths = []
-    for n in range(N):
-        s = S
-        path = [round(s, 3)]
-        for _ in range(steps):
-            s *= math.exp((mu_ - 0.5 * vol * vol) * dt + vol * math.sqrt(dt) * _gauss(rng))
-            path.append(round(s, 3))
-        terminals.append(s)
-        if n < 12:
-            sample_paths.append(path)
-    terminals.sort()
-    mean = sum(terminals) / len(terminals)
-    p5 = terminals[int(0.05 * len(terminals))]
-    p95 = terminals[int(0.95 * len(terminals))]
-    lo, hi = terminals[0], terminals[-1]
-    bins = 18
-    width = (hi - lo) / bins or 1
-    hist = [0] * bins
-    for t in terminals:
-        idx = min(int((t - lo) / width), bins - 1)
-        hist[idx] += 1
-    histogram = [{"x": round(lo + (i + 0.5) * width, 2), "count": hist[i]} for i in range(bins)]
+    """Compatibility adapter over the canonical F-CAL-6 physical-P engine.
+
+    The AG-UI block keeps its historical presentation keys, but simulation,
+    RNG, validation and quantiles all come from ``monte_carlo.py``.  Inputs are
+    intentionally not clamped: an invalid request fails closed.
+    """
+    numeric = {"S": S, "mu": mu, "sigma": sigma, "T": T_days}
+    for name, value in numeric.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise MonteCarloError(f"{name} must be a finite JSON number; strings and booleans are rejected.")
+    integers = {"N": N, "steps": steps, "seed": seed}
+    for name, value in integers.items():
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise MonteCarloError(f"{name} must be a JSON integer; strings and fractional values are rejected.")
+    result = run_monte_carlo({
+        "schemaVersion": MONTE_CARLO_INPUT_SCHEMA,
+        "mode": "risk_physical",
+        "spot": S,
+        "volatility": sigma / 100.0,
+        "maturityYears": T_days / 365.0,
+        "dayCount": "ACT/365F",
+        "paths": N,
+        "timeSteps": steps,
+        "seed": seed,
+        "method": "none",
+        "samplePaths": min(N, 12),
+        "histogramBins": 18,
+        "currency": "EUR",
+        "quantity": 1,
+        "contractMultiplier": 1.0,
+        "position": "long",
+        "physicalDrift": mu / 100.0,
+        "confidence": 0.95,
+    })
+    quantiles = result["distribution"]["quantiles"]
     return {
-        "paths": sample_paths, "n": N, "steps": steps,
-        "terminal_mean": round(mean, 3), "p5": round(p5, 3), "p95": round(p95, 3),
-        "histogram": histogram,
+        "paths": [[point["spot"] for point in path["points"]] for path in result["samplePaths"]],
+        "n": result["run"]["simulatedPaths"],
+        "steps": result["run"]["timeSteps"],
+        "terminal_mean": result["distribution"]["terminalMean"],
+        "p5": quantiles["p05"],
+        "p95": quantiles["p95"],
+        "histogram": [{"x": row["midpoint"], "count": row["count"]} for row in result["distribution"]["histogram"]],
+        "analysis_id": result["analysisId"],
+        "engine_version": result["engineVersion"],
+        "measure": result["measure"],
+        "day_count": result["conventions"]["dayCount"],
     }
 
 
@@ -313,24 +301,84 @@ def structured_payoff(kind: str, params: dict) -> dict:
     return {"kind": kind, "curve": curve, "scenarios": scenarios, "barrier": barrier, "coupon": coupon}
 
 
-def binomial_tree(S: float, K: float, r: float, sigma: float, T_days: float, steps: int, kind: str = "call", american: bool = False) -> dict:
-    """CRR binomial tree. Units r,sigma percent; T days. steps small for display."""
-    steps = max(1, min(int(steps), 6))
-    r_, vol, T = r / 100.0, sigma / 100.0, max(T_days, 1) / 365.0
-    dt = T / steps
-    u = math.exp(vol * math.sqrt(dt))
-    d = 1.0 / u
-    p = (math.exp(r_ * dt) - d) / (u - d)
-    p = min(max(p, 0.0), 1.0)
-    disc = math.exp(-r_ * dt)
-    asset = [[S * (u ** (j)) * (d ** (i - j)) for j in range(i + 1)] for i in range(steps + 1)]
-    opt = [max((asset[steps][j] - K), 0.0) if kind == "call" else max(K - asset[steps][j], 0.0) for j in range(steps + 1)]
-    for i in range(steps - 1, -1, -1):
-        opt = [disc * (p * opt[j + 1] + (1 - p) * opt[j]) for j in range(i + 1)]
-        if american:
-            opt = [max(opt[j], (asset[i][j] - K) if kind == "call" else (K - asset[i][j]), 0.0) for j in range(i + 1)]
-    nodes = [[round(v, 2) for v in level] for level in asset]
-    return {"price": round(opt[0], 4), "u": round(u, 4), "d": round(d, 4), "p": round(p, 4), "steps": steps, "nodes": nodes}
+def binomial_tree(S: float, K: float, r: float, sigma: float, T_days: float, steps: int, kind: str = "call", american: bool = False, q: float = 0.0) -> dict:
+    """Compatibility adapter over the canonical F-CAL-7 CRR engine.
+
+    Historical AG-UI units remain percentages/days. Inputs are not clamped and
+    the returned ``steps`` is the requested lattice size; only the rendered node
+    preview is bounded to the canonical six-level display contract.
+    """
+    for name, value in {"S": S, "K": K, "r": r, "q": q, "sigma": sigma, "T": T_days}.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError(f"{name} must be a finite JSON number; strings and booleans are rejected.")
+    if isinstance(steps, bool) or not isinstance(steps, int):
+        raise ValueError("steps must be a JSON integer; strings and fractional values are rejected.")
+    if kind not in {"call", "put"}:
+        raise ValueError("kind must be call or put.")
+    if not isinstance(american, bool):
+        raise ValueError("american must be a JSON boolean.")
+    result = analyze_binomial({
+        "schemaVersion": BINOMIAL_INPUT_SCHEMA, "spot": S, "strike": K,
+        "volatility": sigma / 100.0, "maturityYears": T_days / 365.0,
+        "dayCount": "ACT/365F", "riskFreeRate": r / 100.0,
+        "dividendYield": q / 100.0, "steps": steps, "optionType": kind,
+        "exerciseStyle": "american" if american else "european",
+        "currency": "EUR", "quantity": 1, "contractMultiplier": 1.0,
+        "position": "long",
+    })
+    grouped: dict[int, list[float]] = {}
+    for node in result["tree"]["nodes"]:
+        grouped.setdefault(node["step"], []).append(round(node["spot"], 2))
+    return {
+        "price": round(result["valuation"]["pricePerUnit"], 4),
+        "u": round(result["model"]["upFactor"], 4),
+        "d": round(result["model"]["downFactor"], 4),
+        "p": None if result["model"]["riskNeutralUpProbability"] is None else round(result["model"]["riskNeutralUpProbability"], 4),
+        "steps": result["input"]["steps"], "nodes": [grouped[key] for key in sorted(grouped)],
+        "analysis_id": result["analysisId"], "engine_version": result["engineVersion"],
+        "european_price": result["valuation"]["europeanPricePerUnit"],
+        "early_exercise_premium": result["valuation"]["earlyExercisePremiumPerUnit"],
+    }
+
+
+def bond_analytics(payload: dict) -> dict:
+    """Strict AG-UI adapter over the canonical F-CAL-8 bond engine.
+
+    The adapter adds only the versioned schema discriminator. Dates, decimals,
+    quote-mode nullability and position units are otherwise preserved exactly;
+    unknown fields and coercible strings fail in the canonical validator.
+    """
+    if type(payload) is not dict:
+        raise ValueError("bond payload must be a JSON object.")
+    result = analyze_bond({"schemaVersion": BOND_INPUT_SCHEMA, **payload})
+    return {
+        "analysis_id": result["analysisId"], "engine_version": result["engineVersion"],
+        "clean_price_per_100": result["quote"]["cleanPricePer100"],
+        "dirty_price_per_100": result["quote"]["dirtyPricePer100"],
+        "accrued_interest_per_100": result["quote"]["accruedInterestPer100"],
+        "yield_to_maturity": result["quote"]["yieldToMaturity"],
+        "modified_duration": result["analytics"]["modifiedDuration"],
+        "convexity": result["analytics"]["convexity"],
+        "position_dv01": result["position"]["dv01"],
+        "selected_exact_pnl": result["selectedScenario"]["exactPnl"],
+        "cashflow_count": len(result["cashflows"]),
+    }
+
+
+def vol_surface_analysis(payload: dict) -> dict:
+    """Strict AG-UI adapter over the canonical F-CAL-9 surface engine."""
+    if type(payload) is not dict:
+        raise ValueError("vol-surface payload must be a JSON object.")
+    result = analyze_vol_surface({"schemaVersion": VOL_SURFACE_INPUT_SCHEMA, **payload})
+    return {
+        "analysis_id": result["analysisId"], "engine_version": result["engineVersion"],
+        "status": result["quality"]["status"], "quote_count": result["quality"]["quoteCount"],
+        "maturity_count": result["quality"]["maturityCount"], "error_count": result["quality"]["errorCount"],
+        "warning_count": result["quality"]["warningCount"],
+        "selected_implied_volatility": result["selectedPoint"]["impliedVolatility"],
+        "selected_total_variance": result["selectedPoint"]["totalVariance"],
+        "diagnostic_codes": [row["code"] for row in result["diagnostics"]],
+    }
 
 
 # Static concept graph for concept_map_block / related concepts.
@@ -447,15 +495,10 @@ def tool_rag_search(services: Services, args: dict) -> tuple[dict, list[dict]]:
 
 def tool_black_scholes(services: Services, args: dict) -> tuple[dict, list[dict]]:
     try:
-        S = float(args.get("S", 100))
-        K = float(args.get("K", 100))
-        r = float(args.get("r", 2))
-        q = float(args.get("q", 0))
-        sigma = float(args.get("sigma", 20))
-        T = float(args.get("T", 180))
-    except (TypeError, ValueError):
-        return {"error": "numeric parameters required (S,K,r,q,sigma,T)"}, []
-    result = black_scholes(S, K, r, q, sigma, T)
+        p = _base_params(args)
+        result = black_scholes(p["S"], p["K"], p["r"], p["q"], p["sigma"], p["T"])
+    except ValueError as exc:
+        return {"error": str(exc)}, []
     metrics = [
         {"label": "Call", "value": result.get("call")},
         {"label": "Put", "value": result.get("put")},
@@ -534,43 +577,60 @@ def tool_render_block(services: Services, args: dict) -> tuple[dict, list[dict]]
     return {"ok": True, "type": block_type}, [ev]
 
 
-def _base_params(args: dict) -> dict:
-    return {
-        "S": float(args.get("S", 100)), "K": float(args.get("K", 100)),
-        "r": float(args.get("r", 2)), "q": float(args.get("q", 0)),
-        "sigma": float(args.get("sigma", 20)), "T": float(args.get("T", 180)),
-    }
+def _base_params(args: dict, extra_keys: tuple[str, ...] = ()) -> dict:
+    if type(args) is not dict:
+        raise ValueError("arguments must be a plain object.")
+    allowed = {"S", "K", "r", "q", "sigma", "T", *extra_keys}
+    unknown = sorted(set(args) - allowed)
+    if unknown:
+        raise ValueError(f"unknown parameters: {'|'.join(unknown)}.")
+    defaults = {"S": 100, "K": 100, "r": 2, "q": 0, "sigma": 20, "T": 180}
+    values = {key: args.get(key, default) for key, default in defaults.items()}
+    # Canonical normalization is the single numerical/domain validator.
+    analyze_black_scholes(_canonical_bs_input(values["S"], values["K"], values["r"], values["q"], values["sigma"], values["T"]))
+    return values
 
 
 def tool_compute_greeks(services: Services, args: dict) -> tuple[dict, list[dict]]:
-    p = _base_params(args)
-    g = bs_full(p["S"], p["K"], p["r"], p["q"], p["sigma"], p["T"])
+    try:
+        p = _base_params(args)
+        g = bs_full(p["S"], p["K"], p["r"], p["q"], p["sigma"], p["T"])
+    except ValueError as exc:
+        return {"error": str(exc)}, []
     ev = _render_event("black_scholes_explorer_block", {"params": p, "result": g})
     return g, ([ev] if ev else [])
 
 
 def tool_put_call_parity(services: Services, args: dict) -> tuple[dict, list[dict]]:
-    p = _base_params(args)
-    bs = black_scholes(p["S"], p["K"], p["r"], p["q"], p["sigma"], p["T"])
+    try:
+        p = _base_params(args)
+        bs = black_scholes(p["S"], p["K"], p["r"], p["q"], p["sigma"], p["T"])
+    except ValueError as exc:
+        return {"error": str(exc)}, []
     ev = _render_event("put_call_parity_block", {"params": p, "result": bs})
     return bs, ([ev] if ev else [])
 
 
 def tool_greeks_sensitivity(services: Services, args: dict) -> tuple[dict, list[dict]]:
-    greek = str(args.get("greek") or "vega")
-    param = str(args.get("param") or "time")
-    data = greeks_sensitivity(greek, param, _base_params(args))
+    try:
+        greek = args.get("greek", "vega")
+        param = args.get("param", "time")
+        if type(greek) is not str or type(param) is not str:
+            raise ValueError("greek and param must be strings.")
+        data = greeks_sensitivity(greek, param, _base_params(args, ("greek", "param")))
+    except ValueError as exc:
+        return {"error": str(exc)}, []
     ev = _render_event("greeks_sensitivity_block", data)
     return {"greek": greek, "param": param, "points": len(data["series"])}, ([ev] if ev else [])
 
 
 def tool_simulate_monte_carlo(services: Services, args: dict) -> tuple[dict, list[dict]]:
     data = mc_simulation(
-        float(args.get("S", 100)), float(args.get("mu", 5)), float(args.get("sigma", 20)),
-        float(args.get("T", 252)), int(args.get("N", 400)), int(args.get("steps", 50)), int(args.get("seed", 7)),
+        args.get("S", 100), args.get("mu", 5), args.get("sigma", 20),
+        args.get("T", 252), args.get("N", 400), args.get("steps", 50), args.get("seed", 7),
     )
     ev = _render_event("monte_carlo_simulation_block", data)
-    summary = {k: data[k] for k in ("terminal_mean", "p5", "p95", "n", "steps")}
+    summary = {k: data[k] for k in ("terminal_mean", "p5", "p95", "n", "steps", "analysis_id", "engine_version", "measure", "day_count")}
     return summary, ([ev] if ev else [])
 
 
@@ -591,11 +651,21 @@ def tool_build_structured_product(services: Services, args: dict) -> tuple[dict,
 
 
 def tool_binomial_tree(services: Services, args: dict) -> tuple[dict, list[dict]]:
-    p = _base_params(args)
-    data = binomial_tree(p["S"], p["K"], p["r"], p["sigma"], p["T"], int(args.get("steps", 4)),
-                         str(args.get("kind", "call")), bool(args.get("american", False)))
+    data = binomial_tree(
+        args.get("S", 100), args.get("K", 100), args.get("r", 2),
+        args.get("sigma", 20), args.get("T", 180), args.get("steps", 4),
+        args.get("kind", "call"), args.get("american", False), args.get("q", 0),
+    )
     ev = _render_event("binomial_tree_block", data)
-    return {"price": data["price"], "p": data["p"], "steps": data["steps"]}, ([ev] if ev else [])
+    return {"price": data["price"], "p": data["p"], "steps": data["steps"], "analysis_id": data["analysis_id"], "engine_version": data["engine_version"]}, ([ev] if ev else [])
+
+
+def tool_bond_analytics(services: Services, args: dict) -> tuple[dict, list[dict]]:
+    return bond_analytics(args), []
+
+
+def tool_vol_surface_analysis(services: Services, args: dict) -> tuple[dict, list[dict]]:
+    return vol_surface_analysis(args), []
 
 
 def tool_grade_user_answer(services: Services, args: dict) -> tuple[dict, list[dict]]:
@@ -630,6 +700,8 @@ TOOL_EXECUTORS: dict[str, Callable[[Services, dict], tuple[dict, list[dict]]]] =
     "generate_payoff_scenario": tool_generate_payoff_scenario,
     "build_structured_product_payoff": tool_build_structured_product,
     "binomial_tree": tool_binomial_tree,
+    "bond_analytics": tool_bond_analytics,
+    "vol_surface_analysis": tool_vol_surface_analysis,
     "grade_user_answer": tool_grade_user_answer,
     "get_related_concepts": tool_related_concepts,
     "set_tool_params": tool_set_tool_params,
@@ -678,6 +750,7 @@ def openai_tool_specs() -> list[dict]:
                         "sigma": {"type": "number"}, "T": {"type": "number"},
                     },
                     "required": ["S", "K", "sigma", "T"],
+                    "additionalProperties": False,
                 },
             },
         },
@@ -688,7 +761,7 @@ def openai_tool_specs() -> list[dict]:
                 "description": (
                     "Take control of an on-page interactive tool and set its parameters to "
                     "demonstrate a concept. tool is one of: bs-pricer, payoff, mc, iv-calc, "
-                    "calib, volsurface. For bs-pricer params keys: S,K,r,q,sigma,T,view "
+                    "calib, binomial, bond, curve, volsurface. For bs-pricer params keys: S,K,r,q,sigma,T,view "
                     "(view in spot|vol|time). For payoff params: legs=[{type:call|put,side:"
                     "long|short,K,qty,prem}] to build a structured-product payoff."
                 ),
@@ -740,7 +813,7 @@ def openai_tool_specs() -> list[dict]:
             "function": {
                 "name": "compute_greeks",
                 "description": "Compute full Black-Scholes Greeks (delta, gamma, vega, theta, rho) and render a Black-Scholes explorer block. Units: r,q,sigma percent; T days.",
-                "parameters": {"type": "object", "properties": {"S": {"type": "number"}, "K": {"type": "number"}, "r": {"type": "number"}, "q": {"type": "number"}, "sigma": {"type": "number"}, "T": {"type": "number"}}, "required": ["S", "K", "sigma", "T"]},
+                "parameters": {"type": "object", "properties": {"S": {"type": "number"}, "K": {"type": "number"}, "r": {"type": "number"}, "q": {"type": "number"}, "sigma": {"type": "number"}, "T": {"type": "number"}}, "required": ["S", "K", "sigma", "T"], "additionalProperties": False},
             },
         },
         {
@@ -748,7 +821,7 @@ def openai_tool_specs() -> list[dict]:
             "function": {
                 "name": "compute_put_call_parity",
                 "description": "Verify the call-put parity C - P = S e^{-qT} - K e^{-rT} and render a put_call_parity_block. Use this when demonstrating parity.",
-                "parameters": {"type": "object", "properties": {"S": {"type": "number"}, "K": {"type": "number"}, "r": {"type": "number"}, "q": {"type": "number"}, "sigma": {"type": "number"}, "T": {"type": "number"}}, "required": ["S", "K", "sigma", "T"]},
+                "parameters": {"type": "object", "properties": {"S": {"type": "number"}, "K": {"type": "number"}, "r": {"type": "number"}, "q": {"type": "number"}, "sigma": {"type": "number"}, "T": {"type": "number"}}, "required": ["S", "K", "sigma", "T"], "additionalProperties": False},
             },
         },
         {
@@ -756,7 +829,7 @@ def openai_tool_specs() -> list[dict]:
             "function": {
                 "name": "greeks_sensitivity",
                 "description": "Render how a Greek evolves as one parameter varies (great for visual intuition, e.g. vega vs maturity). greek in delta|gamma|vega|theta|rho; param in spot|vol|time|strike.",
-                "parameters": {"type": "object", "properties": {"greek": {"type": "string"}, "param": {"type": "string"}, "S": {"type": "number"}, "K": {"type": "number"}, "r": {"type": "number"}, "q": {"type": "number"}, "sigma": {"type": "number"}, "T": {"type": "number"}}, "required": ["greek", "param"]},
+                "parameters": {"type": "object", "properties": {"greek": {"type": "string", "enum": ["delta", "gamma", "vega", "theta", "rho", "call", "put"]}, "param": {"type": "string", "enum": ["spot", "vol", "time", "strike"]}, "S": {"type": "number"}, "K": {"type": "number"}, "r": {"type": "number"}, "q": {"type": "number"}, "sigma": {"type": "number"}, "T": {"type": "number"}}, "required": ["greek", "param"], "additionalProperties": False},
             },
         },
         {
@@ -787,8 +860,55 @@ def openai_tool_specs() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "binomial_tree",
-                "description": "Price an option on a small CRR binomial tree (<=6 steps) and render the tree. american=true for early exercise.",
-                "parameters": {"type": "object", "properties": {"S": {"type": "number"}, "K": {"type": "number"}, "r": {"type": "number"}, "sigma": {"type": "number"}, "T": {"type": "number"}, "steps": {"type": "integer"}, "kind": {"type": "string"}, "american": {"type": "boolean"}}, "required": ["S", "K", "sigma", "T"]},
+                "description": "Price a European or American option with the canonical CRR engine. Rates/vol are percentages, T is days, and invalid no-arbitrage probabilities fail closed.",
+                "parameters": {"type": "object", "properties": {"S": {"type": "number"}, "K": {"type": "number"}, "r": {"type": "number"}, "q": {"type": "number"}, "sigma": {"type": "number"}, "T": {"type": "number"}, "steps": {"type": "integer", "minimum": 2, "maximum": 2000}, "kind": {"type": "string", "enum": ["call", "put"]}, "american": {"type": "boolean"}}, "required": ["S", "K", "sigma", "T"]},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "bond_analytics",
+                "description": "Price a regular fixed-rate bullet bond with the canonical F-CAL-8 engine. Inputs use ISO dates and decimal coupon/yield; quoteMode is yield or clean_price. Returns clean/dirty/accrued, solved YTM, duration, convexity, signed DV01 and exact shock P&L.",
+                "parameters": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "settlementDate": {"type": "string", "format": "date"},
+                        "maturityDate": {"type": "string", "format": "date"},
+                        "dayCount": {"type": "string", "enum": ["ACT/ACT ICMA", "30E/360"]},
+                        "couponRate": {"type": "number", "minimum": 0, "maximum": 1},
+                        "couponFrequency": {"type": "integer", "enum": [1, 2, 4, 12]},
+                        "quoteMode": {"type": "string", "enum": ["yield", "clean_price"]},
+                        "yieldToMaturity": {"type": ["number", "null"]},
+                        "cleanPrice": {"type": ["number", "null"]},
+                        "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+                        "notional": {"type": "number", "exclusiveMinimum": 0},
+                        "position": {"type": "string", "enum": ["long", "short"]},
+                        "shockBp": {"type": "number", "minimum": -5000, "maximum": 5000},
+                    },
+                    "required": ["settlementDate", "maturityDate", "dayCount", "couponRate", "couponFrequency", "quoteMode", "yieldToMaturity", "cleanPrice", "currency", "notional", "position", "shockBp"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "vol_surface_analysis",
+                "description": "Analyze a rectangular implied-volatility surface with the canonical F-CAL-9 engine. Volatilities are annualized decimals; k is ln(K/F). Returns total-variance interpolation and discrete bound, vertical, butterfly and calendar diagnostics without repair.",
+                "parameters": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "surfaceName": {"type": "string", "minLength": 1, "maxLength": 80},
+                        "asOfDate": {"type": "string", "format": "date"},
+                        "sourceKind": {"type": "string", "enum": ["deterministic_fixture", "user_csv"]},
+                        "interpolationMode": {"type": "string", "enum": ["total_variance_bilinear"]},
+                        "selectedMaturity": {"type": "number"},
+                        "selectedLogMoneyness": {"type": "number"},
+                        "quotes": {"type": "array", "minItems": 10, "maxItems": 500, "items": {"type": "object", "additionalProperties": False, "properties": {"maturity": {"type": "number"}, "forward": {"type": "number"}, "discountFactor": {"type": "number"}, "logMoneyness": {"type": "number"}, "impliedVolatility": {"type": "number"}, "bidVolatility": {"type": ["number", "null"]}, "askVolatility": {"type": ["number", "null"]}}, "required": ["maturity", "forward", "discountFactor", "logMoneyness", "impliedVolatility", "bidVolatility", "askVolatility"]}},
+                    },
+                    "required": ["surfaceName", "asOfDate", "sourceKind", "interpolationMode", "selectedMaturity", "selectedLogMoneyness", "quotes"],
+                },
             },
         },
         {
@@ -846,7 +966,7 @@ def build_system_prompt(ctx: dict) -> str:
         f"{tool_line}\n\n"
         "Outils disponibles (utilise-les, ne les simule pas):\n"
         "- rag_search → fonde tes explications conceptuelles sur le corpus interne et cite les sources.\n"
-        "- compute_black_scholes / compute_greeks / compute_put_call_parity / binomial_tree → nombres VÉRIFIÉS.\n"
+        "- compute_black_scholes / compute_greeks / compute_put_call_parity / binomial_tree / bond_analytics / vol_surface_analysis → nombres VÉRIFIÉS.\n"
         "- greeks_sensitivity → montre l'évolution d'un Greek selon un paramètre (intuition visuelle).\n"
         "- simulate_monte_carlo → trajectoires + distribution terminale.\n"
         "- generate_payoff_scenario (stratégies d'options) / build_structured_product_payoff (autocall, capital protégé, reverse convertible...).\n"
@@ -1073,7 +1193,7 @@ def _run_offline_agent(services: Services, payload: dict, ctx: dict) -> Iterator
             yield from _tool_call_sequence(services, "navigate", {"path": "/tools/bs-pricer"})
         params = {"S": 100, "K": 100, "r": 2, "q": 0, "sigma": 20, "T": 180, "view": "spot"}
         yield from _tool_call_sequence(services, "set_tool_params", {"tool": "bs-pricer", "params": params})
-        yield from _tool_call_sequence(services, "compute_black_scholes", params)
+        yield from _tool_call_sequence(services, "compute_black_scholes", {key: params[key] for key in ("S", "K", "r", "q", "sigma", "T")})
         bs = black_scholes(100, 100, 2, 0, 20, 180)
         yield from _emit_text(
             "J'ai réglé le pricer en **at-the-money** ($S=K=100$). Observe la **parité call-put** : "

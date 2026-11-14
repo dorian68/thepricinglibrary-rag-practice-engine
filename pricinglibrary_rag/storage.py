@@ -109,6 +109,7 @@ class LocalStore:
 
                 CREATE TABLE IF NOT EXISTS entitlements (
                     email TEXT PRIMARY KEY,
+                    user_id TEXT,
                     plan TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'active',
                     stripe_customer_id TEXT,
@@ -124,6 +125,28 @@ class LocalStore:
                     payload_json TEXT NOT NULL,
                     created_at TEXT NOT NULL DEFAULT (datetime('now'))
                 );
+
+                CREATE TABLE IF NOT EXISTS product_entitlements (
+                    user_id TEXT NOT NULL,
+                    product_id TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    stripe_customer_id TEXT,
+                    stripe_checkout_session_id TEXT,
+                    stripe_payment_intent_id TEXT,
+                    source TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY(user_id, product_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_product_entitlements_customer
+                    ON product_entitlements(stripe_customer_id);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_product_entitlements_checkout
+                    ON product_entitlements(stripe_checkout_session_id)
+                    WHERE stripe_checkout_session_id IS NOT NULL;
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_product_entitlements_payment
+                    ON product_entitlements(stripe_payment_intent_id)
+                    WHERE stripe_payment_intent_id IS NOT NULL;
 
                 CREATE INDEX IF NOT EXISTS idx_chunks_document_id
                     ON chunks(document_id);
@@ -157,6 +180,24 @@ class LocalStore:
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_chunks_usable ON chunks(usable_for_course)"
+        )
+        entitlement_cols = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(entitlements)").fetchall()
+        }
+        if "user_id" not in entitlement_cols:
+            conn.execute("ALTER TABLE entitlements ADD COLUMN user_id TEXT")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_entitlements_user_id "
+            "ON entitlements(user_id) WHERE user_id IS NOT NULL"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entitlements_customer "
+            "ON entitlements(stripe_customer_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entitlements_subscription "
+            "ON entitlements(stripe_subscription_id)"
         )
 
     def _ensure_fts(self, conn: sqlite3.Connection) -> None:
@@ -322,6 +363,8 @@ class LocalStore:
         usable_only: bool = False,
         min_pedagogical_value: int | None = None,
         limit: int | None = None,
+        chunk_ids: list[str] | None = None,
+        include_embeddings: bool = True,
     ) -> list[StoredChunk]:
         query = """
             SELECT
@@ -334,6 +377,13 @@ class LocalStore:
             WHERE d.status = 'active'
         """
         params: list[Any] = []
+        if not include_embeddings:
+            query = query.replace("c.*", "c.id,c.document_id,c.chunk_index,c.content,c.token_count,c.section_title,c.metadata_json,c.created_at,c.content_type,c.pedagogical_value,c.quality_score,c.usable_for_course,'[]' AS embedding_json,NULL AS embedding_blob")
+        if chunk_ids is not None:
+            if not chunk_ids:
+                return []
+            query += " AND c.id IN (" + ",".join("?" for _ in chunk_ids) + ")"
+            params.extend(chunk_ids)
         if content_type:
             query += " AND c.content_type = ?"
             params.append(content_type)
@@ -468,9 +518,7 @@ class LocalStore:
         return updated
 
     def fts_candidate_ids(self, query: str, limit: int = 80) -> list[str]:
-        safe_query = " OR ".join(
-            token for token in query.replace('"', " ").split() if len(token) > 2
-        )
+        safe_query = " OR ".join(f'"{token}"' for token in dict.fromkeys(tokenize(query)) if len(token) > 2)
         if not safe_query:
             return []
         try:
@@ -509,29 +557,67 @@ class LocalStore:
         email: str,
         plan: str,
         *,
+        user_id: str | None = None,
         status: str = "active",
         stripe_customer_id: str | None = None,
         stripe_subscription_id: str | None = None,
         source: str | None = None,
     ) -> dict[str, Any]:
         email = email.strip().lower()
+        updated_existing = False
         with self.connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO entitlements(
-                    email, plan, status, stripe_customer_id,
-                    stripe_subscription_id, source, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-                ON CONFLICT(email) DO UPDATE SET
-                    plan = excluded.plan,
-                    status = excluded.status,
-                    stripe_customer_id = COALESCE(excluded.stripe_customer_id, entitlements.stripe_customer_id),
-                    stripe_subscription_id = COALESCE(excluded.stripe_subscription_id, entitlements.stripe_subscription_id),
-                    source = excluded.source,
-                    updated_at = datetime('now')
-                """,
-                (email, plan, status, stripe_customer_id, stripe_subscription_id, source),
-            )
+            if user_id:
+                # Bind a pre-existing email entitlement to the authenticated
+                # subject, then keep that subject as the stable identity even
+                # if its receipt email later changes.
+                existing = conn.execute(
+                    "SELECT email, user_id FROM entitlements WHERE user_id = ? OR email = ? "
+                    "ORDER BY CASE WHEN user_id = ? THEN 0 ELSE 1 END LIMIT 1",
+                    (user_id, email, user_id),
+                ).fetchone()
+                if existing:
+                    stored_email = existing["email"] if existing["user_id"] else email
+                    conn.execute(
+                        """
+                        UPDATE entitlements SET
+                            email = ?, user_id = ?, plan = ?, status = ?,
+                            stripe_customer_id = COALESCE(?, stripe_customer_id),
+                            stripe_subscription_id = COALESCE(?, stripe_subscription_id),
+                            source = ?, updated_at = datetime('now')
+                        WHERE email = ?
+                        """,
+                        (
+                            stored_email,
+                            user_id,
+                            plan,
+                            status,
+                            stripe_customer_id,
+                            stripe_subscription_id,
+                            source,
+                            existing["email"],
+                        ),
+                    )
+                    updated_existing = True
+            if not updated_existing:
+                conn.execute(
+                    """
+                    INSERT INTO entitlements(
+                        email, user_id, plan, status, stripe_customer_id,
+                        stripe_subscription_id, source, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    ON CONFLICT(email) DO UPDATE SET
+                        user_id = COALESCE(excluded.user_id, entitlements.user_id),
+                        plan = excluded.plan,
+                        status = excluded.status,
+                        stripe_customer_id = COALESCE(excluded.stripe_customer_id, entitlements.stripe_customer_id),
+                        stripe_subscription_id = COALESCE(excluded.stripe_subscription_id, entitlements.stripe_subscription_id),
+                        source = excluded.source,
+                        updated_at = datetime('now')
+                    """,
+                    (email, user_id, plan, status, stripe_customer_id, stripe_subscription_id, source),
+                )
+        if user_id:
+            return self.get_entitlement_by_user_id(user_id) or {}
         return self.get_entitlement(email) or {}
 
     def get_entitlement(self, email: str) -> dict[str, Any] | None:
@@ -541,12 +627,175 @@ class LocalStore:
             ).fetchone()
         return dict(row) if row else None
 
+    def get_entitlement_by_user_id(self, user_id: str | None) -> dict[str, Any] | None:
+        if not user_id:
+            return None
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM entitlements WHERE user_id = ?", (user_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def find_entitlement_for_stripe(
+        self,
+        *,
+        user_id: str | None = None,
+        customer_id: str | None = None,
+        subscription_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        clauses: list[str] = []
+        values: list[str] = []
+        for column, value in (
+            ("user_id", user_id),
+            ("stripe_customer_id", customer_id),
+            ("stripe_subscription_id", subscription_id),
+        ):
+            if value:
+                clauses.append(f"{column} = ?")
+                values.append(value)
+        if not clauses:
+            return None
+        with self.connect() as conn:
+            row = conn.execute(
+                f"SELECT * FROM entitlements WHERE {' OR '.join(clauses)} LIMIT 1",
+                values,
+            ).fetchone()
+        return dict(row) if row else None
+
+    def revoke_entitlement(
+        self,
+        entitlement: dict[str, Any],
+        *,
+        status: str,
+        source: str,
+    ) -> dict[str, Any]:
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE entitlements SET status = ?, source = ?, updated_at = datetime('now') WHERE email = ?",
+                (status, source, entitlement["email"]),
+            )
+        if entitlement.get("user_id"):
+            return self.get_entitlement_by_user_id(entitlement["user_id"]) or {}
+        return self.get_entitlement(entitlement["email"]) or {}
+
     def list_entitlements(self, *, limit: int = 100) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM entitlements ORDER BY updated_at DESC LIMIT ?", (limit,)
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def upsert_product_entitlement(
+        self,
+        user_id: str,
+        product_id: str,
+        *,
+        status: str = "active",
+        stripe_customer_id: str | None = None,
+        stripe_checkout_session_id: str | None = None,
+        stripe_payment_intent_id: str | None = None,
+        source: str | None = None,
+    ) -> dict[str, Any]:
+        user_id = user_id.strip()
+        product_id = product_id.strip().lower()
+        if not user_id or not product_id:
+            raise ValueError("user_id and product_id are required")
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO product_entitlements(
+                    user_id, product_id, status, stripe_customer_id,
+                    stripe_checkout_session_id, stripe_payment_intent_id,
+                    source, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(user_id, product_id) DO UPDATE SET
+                    status = excluded.status,
+                    stripe_customer_id = COALESCE(excluded.stripe_customer_id, product_entitlements.stripe_customer_id),
+                    stripe_checkout_session_id = COALESCE(excluded.stripe_checkout_session_id, product_entitlements.stripe_checkout_session_id),
+                    stripe_payment_intent_id = COALESCE(excluded.stripe_payment_intent_id, product_entitlements.stripe_payment_intent_id),
+                    source = excluded.source,
+                    updated_at = datetime('now')
+                """,
+                (
+                    user_id,
+                    product_id,
+                    status,
+                    stripe_customer_id,
+                    stripe_checkout_session_id,
+                    stripe_payment_intent_id,
+                    source,
+                ),
+            )
+        return self.get_product_entitlement(user_id, product_id) or {}
+
+    def get_product_entitlement(
+        self, user_id: str | None, product_id: str
+    ) -> dict[str, Any] | None:
+        if not user_id:
+            return None
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM product_entitlements WHERE user_id = ? AND product_id = ?",
+                (user_id.strip(), product_id.strip().lower()),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def find_product_entitlement_for_stripe(
+        self,
+        *,
+        product_id: str | None = None,
+        user_id: str | None = None,
+        checkout_session_id: str | None = None,
+        payment_intent_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        # Provider transaction ids are authoritative when present. Do not OR
+        # them with user/product: a late refund for an older purchase must not
+        # revoke a newer paid purchase of the same product.
+        if payment_intent_id:
+            query = "stripe_payment_intent_id = ?"
+            values = [payment_intent_id]
+        elif checkout_session_id:
+            query = "stripe_checkout_session_id = ?"
+            values = [checkout_session_id]
+        elif user_id and product_id:
+            query = "user_id = ? AND product_id = ?"
+            values = [user_id, product_id.strip().lower()]
+        else:
+            return None
+        with self.connect() as conn:
+            row = conn.execute(
+                f"SELECT * FROM product_entitlements WHERE {query} LIMIT 1",
+                values,
+            ).fetchone()
+        return dict(row) if row else None
+
+    def revoke_product_entitlement(
+        self,
+        entitlement: dict[str, Any],
+        *,
+        status: str,
+        source: str,
+    ) -> dict[str, Any]:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE product_entitlements
+                SET status = ?, source = ?, updated_at = datetime('now')
+                WHERE user_id = ? AND product_id = ?
+                """,
+                (status, source, entitlement["user_id"], entitlement["product_id"]),
+            )
+        return self.get_product_entitlement(
+            entitlement["user_id"], entitlement["product_id"]
+        ) or {}
+
+    def list_product_entitlements(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM product_entitlements ORDER BY updated_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def billing_event_seen(self, event_id: str) -> bool:
         with self.connect() as conn:

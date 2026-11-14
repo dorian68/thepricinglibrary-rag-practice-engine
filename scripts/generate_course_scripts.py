@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -377,8 +378,26 @@ def main() -> None:
         help="Override TPL_LLM_PROVIDER for this run.",
     )
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--slug",
+        action="append",
+        choices=[spec.slug for spec in COURSE_SPECS],
+        help=(
+            "Generate only the selected course. Can be repeated; useful for "
+            "resumable quality-gated authoring runs."
+        ),
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=32,
+        help="Retrieved evidence candidates per course (16 to 64, default: 32).",
+    )
     parser.add_argument("--language", choices=["fr", "en"], default="fr")
     args = parser.parse_args()
+
+    if not 16 <= args.top_k <= 64:
+        parser.error("--top-k must be between 16 and 64")
 
     if args.llm_provider:
         os.environ["TPL_LLM_PROVIDER"] = args.llm_provider
@@ -392,7 +411,13 @@ def main() -> None:
     output_dir = Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     agent = PracticeAgent(services.generator)
-    specs = COURSE_SPECS[: args.limit] if args.limit else COURSE_SPECS
+    specs = (
+        [spec for spec in COURSE_SPECS if spec.slug in set(args.slug)]
+        if args.slug
+        else COURSE_SPECS
+    )
+    if args.limit:
+        specs = specs[: args.limit]
     documents = services.store.list_documents(limit=10_000)
 
     index = {
@@ -411,7 +436,9 @@ def main() -> None:
             level=spec.level,  # type: ignore[arg-type]
             duration_minutes=spec.duration_minutes,
             module_count=spec.module_count,
-            top_k=18,
+            # Retrieve above the 16-source publication floor because OCR and
+            # metadata-only hits can legitimately have an empty/noisy excerpt.
+            top_k=args.top_k,
             language=args.language,
         )
         response = agent.create_course(request)
@@ -502,14 +529,49 @@ source_count: {len(response.sources)}
 
 
 def _source_appendix(response) -> str:
-    if "## Sources RAG a citer" in response.content:
+    """Build the evidence ledger used by authoring QA, never by the client UI.
+
+    The learner-facing course already contains a short, readable bibliography.
+    This appendix deliberately retains the exact retrieved snippets and chunk
+    metadata so the strict grounding audit can reject an under-sourced course.
+    The API removes this whole section before delivering Markdown to a member.
+    """
+    if "## Source Appendix (back-office)" in response.content:
         return ""
-    source_lines = "\n".join(
-        f"- [S{idx}] {src.title or src.source or src.document_id} "
-        f"(chunk {src.chunk_index}, score {src.score:.3f})"
-        for idx, src in enumerate(response.sources, start=1)
+
+    source_lines: list[str] = []
+    for source in response.sources:
+        snippet = re.sub(r"\s+", " ", source.snippet).strip()
+        if not _presentable_source_excerpt(snippet):
+            continue
+        title = re.sub(
+            r"\s+",
+            " ",
+            source.title or source.source or source.document_id,
+        ).strip()
+        source_lines.append(
+            f"- [S{len(source_lines) + 1}] {title} "
+            f"(document {source.document_id}, chunk {source.chunk_index}, "
+            f"score {source.score:.3f}): {snippet}"
+        )
+
+    return (
+        "\n## Source Appendix (back-office)\n"
+        + ("\n".join(source_lines) if source_lines else "- No retrieved source.")
+        + "\n"
     )
-    return f"\n## Source Appendix\n{source_lines or '- No retrieved source.'}\n"
+
+
+def _presentable_source_excerpt(snippet: str) -> bool:
+    """Reject empty/OCR-noise evidence using the publication audit contract."""
+    if not snippet or re.fullmatch(r"[.,;\s]+", snippet):
+        return False
+    if "extrait non cite" in snippet.lower():
+        return False
+    return not (
+        re.match(r"^[a-z]{1,3}[,.\s]", snippet, flags=re.IGNORECASE)
+        and len(snippet) < 80
+    )
 
 
 def _formula_bank_markdown(slug: str) -> str:

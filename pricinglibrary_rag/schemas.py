@@ -84,6 +84,7 @@ class SearchResponse(BaseModel):
 
 
 class ExerciseRequest(BaseModel):
+    client_request_id: str | None = Field(default=None, max_length=80, pattern=r"^[a-zA-Z0-9-]+$")
     topic: str | None = None
     product: str | None = None
     concept: str | None = None
@@ -91,7 +92,7 @@ class ExerciseRequest(BaseModel):
     difficulty: Difficulty = "intermediate"
     exercise_format: ExerciseFormat = "mixed"
     target_audience: str = "market finance learners"
-    number_of_questions: int = 5
+    number_of_questions: int = Field(default=5, ge=1, le=12)
     require_calculations: bool = True
     top_k: int = 8
     language: Literal["fr", "en"] = "fr"

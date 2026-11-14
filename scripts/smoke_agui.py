@@ -12,7 +12,12 @@ import json
 import os
 import sys
 
-os.environ.setdefault("TPL_LLM_PROVIDER", "template")
+# This is an offline contract test, not an integration test against whichever
+# provider happens to be configured in the operator's .env.  LLM_PROVIDER has
+# precedence over the legacy TPL_LLM_PROVIDER in Settings.from_env().
+os.environ["GENERATION_MODE"] = "template"
+os.environ["LLM_PROVIDER"] = "template"
+os.environ["TPL_LLM_PROVIDER"] = "template"
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

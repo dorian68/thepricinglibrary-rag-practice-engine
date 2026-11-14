@@ -127,6 +127,58 @@ Endpoints principaux:
 - `POST /evaluation/response`
 - `POST /evaluation/suite`
 
+### Securite de l'API en production
+
+Le conteneur Docker force `TPL_ENVIRONMENT=production`. Dans ce mode, les
+routes protegees restent fermees (`503`) et `/ready` reste non pret tant que la
+configuration suivante n'est pas valide:
+
+```text
+TPL_API_KEY=<cle membre/session d'au moins 32 caracteres>
+TPL_OPERATOR_API_KEY=<cle operateur distincte d'au moins 32 caracteres>
+TPL_AUTH_ISSUER=https://PROJECT_REF.supabase.co/auth/v1
+TPL_AUTH_AUDIENCE=authenticated
+TPL_AUTH_JWKS_URL=https://PROJECT_REF.supabase.co/auth/v1/.well-known/jwks.json
+TPL_AUTH_ALGORITHMS=ES256,RS256
+TPL_RATE_LIMIT_PER_MIN=60
+TPL_CORS_ORIGINS=https://thepricinglibrary.com,https://www.thepricinglibrary.com
+```
+
+Les services authentifies envoient `X-API-Key: ...`. Le navigateur envoie
+directement `Authorization: Bearer <session.access_token Supabase>`: le backend
+verifie signature JWKS, algorithme, issuer, audience, expiration et subject. Le
+checkout et l'entitlement tirent `sub` et `email` de ce jeton; l'email libre du
+body/query est ignore en production. Le meme jeton ouvre les autres parcours
+member. La cle membre serveur ouvre egalement ces parcours; la cle
+operateur ouvre ingestion, administration et mutations globales. Toute nouvelle
+mutation non classee est operateur par defaut. Le rate limit est persiste dans
+SQLite et partage entre workers utilisant le meme volume `/data`.
+
+Ne jamais inclure ces cles ni un secret de signature dans un bundle frontend.
+`TPL_AUTH_TOKEN_SECRET` reste disponible comme fallback HS256 pour un gateway
+de confiance, mais n'est pas necessaire avec la validation JWKS Supabase.
+
+Le backend verifie ensuite l'entitlement Stripe persiste pour le `sub` du
+jeton. Les badges/gates frontend ne sont jamais autoritatifs:
+
+| Niveau minimal | Routes premium |
+|---|---|
+| `starter` | `/rag/search`, `/agent/exercise`, `/generate/exercise` |
+| `student` | `/agent/course`, `/generate/course`, `/evaluation/response`, `/platform/survival` |
+| `pro` | `/agent/ag-ui/run`, `/agent/desk/run`, `GET /agent/desk/state*`, `/generate/material-pack`, `/strategy/*` |
+
+Un plan superieur satisfait un niveau inferieur. Un entitlement absent,
+inactif, annule, rembourse, en chargeback ou de niveau insuffisant retourne
+`403` avant l'execution. La cle operateur peut bypasser ce gate pour les jobs
+internes; la cle membre partagee ne le peut pas. `/platform/progress` reste un
+parcours membre sans paywall pour permettre la progression gratuite.
+
+Gate reproductible, entierement hors ligne:
+
+```powershell
+python scripts/production_check.py
+```
+
 ## Practice Library
 
 Le backend est pense comme une bibliotheque pedagogique, pas comme un simple

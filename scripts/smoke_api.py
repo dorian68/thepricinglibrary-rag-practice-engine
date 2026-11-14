@@ -6,7 +6,7 @@ Backend-first, fully offline and free:
 - drives the FastAPI app in-process via Starlette TestClient;
 - asserts the response CONTRACT the frontend depends on:
     /health           -> 200
-    /agent/exercise   -> 200, sources[] non-empty, [Sx] grounding,
+    /agent/exercise   -> 200, sources[] non-empty, no raw [Sx] leak,
                           metadata.llm present, verified calculation_pack
     /agent/course     -> 200, sources[], lessons, metadata.llm
 
@@ -32,9 +32,15 @@ if str(BACKEND_ROOT) not in sys.path:
 _TMP = Path(tempfile.mkdtemp(prefix="tpl_smoke_api_"))
 os.environ["TPL_DATA_DIR"] = str(_TMP)
 os.environ["TPL_DB_PATH"] = str(_TMP / "smoke_api.sqlite3")
+os.environ["GENERATION_MODE"] = "template"
+os.environ["LLM_PROVIDER"] = "template"
 os.environ["TPL_LLM_PROVIDER"] = "template"
 os.environ["TPL_EMBEDDING_BACKEND"] = "local-hashing"
 os.environ["TPL_EMBEDDING_DIM"] = "512"
+os.environ["TPL_ENVIRONMENT"] = "test"
+os.environ["TPL_API_KEY"] = ""
+os.environ["TPL_OPERATOR_API_KEY"] = ""
+os.environ["TPL_AUTH_TOKEN_SECRET"] = ""
 
 from starlette.testclient import TestClient  # noqa: E402
 
@@ -127,7 +133,7 @@ def main() -> int:
         meta = data.get("metadata", {}) or {}
         check(len(sources) > 0, "exercise: sources[] non-empty",
               output=f"{len(sources)} sources")
-        check("[S" in content, "exercise: [Sx] grounding markers in content")
+        check("[S" not in content, "exercise: no raw [Sx] source markers leaked to persona content")
         check(bool(meta.get("llm")), "exercise: metadata.llm present",
               output=str(meta.get("llm")))
         pack = meta.get("calculation_pack")

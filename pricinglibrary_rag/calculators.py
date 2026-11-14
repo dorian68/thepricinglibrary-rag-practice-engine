@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import math
-import random
 import re
 from dataclasses import dataclass, field
+
+from .black_scholes import BLACK_SCHOLES_INPUT_SCHEMA, analyze_black_scholes
+from .yield_curve import YieldCurveError, build_yield_curve
+from .monte_carlo import INPUT_SCHEMA_VERSION as MONTE_CARLO_INPUT_SCHEMA, MonteCarloError, run_monte_carlo
+
+
+class ExerciseInputError(RuntimeError):
+    """A user's requested scenario cannot be calculated as specified."""
 
 
 @dataclass(frozen=True)
@@ -364,42 +371,71 @@ class PracticeCalculator:
 
     def _vanilla_option_pack(self, text: str) -> CalculationPack | None:
         lower = text.lower()
-        if "black" not in lower and "vanilla" not in lower and "call" not in lower:
+        if not re.search(r"\b(?:black|scholes|vanilla|call|put|option)\b", lower):
             return None
-        spot = self._extract_number(lower, r"spot\s*([+-]?\s*\d+(?:[.,]\d+)?)")
-        strike = self._extract_number(lower, r"(?:strike|prix d'exercice)\s*([+-]?\s*\d+(?:[.,]\d+)?)")
-        vol = self._extract_number(lower, r"(?:vol|volatilite|volatility)\s*([+-]?\s*\d+(?:[.,]\d+)?)\s*%")
-        maturity = self._extract_number(lower, r"(?:maturite|maturité|maturity)\s*([+-]?\s*\d+(?:[.,]\d+)?)")
-        rate = self._extract_number(lower, r"(?:taux|rate|risk-free)[^\d+-]*([+-]?\s*\d+(?:[.,]\d+)?)\s*%") or 0.0
+        if re.search(r"\b(?:american|am[eé]ricain\w*|bermud\w*)\b", lower):
+            raise ExerciseInputError("Ce générateur vanilla utilise le modèle européen. Le style américain/bermudéen n’est pas pris en charge ici.")
+        spot = self._extract_number(lower, r"(?:\bspot|\bs\s*=)\s*=?\s*([+-]?\s*\d+(?:[.,]\d+)?)")
+        strike = self._extract_number(lower, r"(?:\bstrike|prix d'exercice|\bk\s*=)\s*=?\s*([+-]?\s*\d+(?:[.,]\d+)?)")
+        vol = self._extract_number(lower, r"(?:\bvol(?:atilite|atilité|atility)?|\bsigma|σ)\s*=?\s*([+-]?\s*\d+(?:[.,]\d+)?)\s*%")
+        maturity = self._extract_number(lower, r"(?:maturite|maturité|maturity|\bt\s*=)\s*=?\s*([+-]?\s*\d+(?:[.,]\d+)?)")
+        tenor_unit = re.search(r"(?:maturite|maturité|maturity|\bt\s*=)\s*=?\s*[+-]?\s*\d+(?:[.,]\d+)?\s*(months?|mois|days?|jours?|weeks?|semaines?|hours?|heures?)\b", lower)
+        if tenor_unit and maturity is not None:
+            unit = tenor_unit.group(1)
+            if unit.startswith(('month', 'mois')):
+                maturity /= 12
+            elif unit.startswith(('day', 'jour')):
+                maturity /= 365
+            else:
+                raise ExerciseInputError("Indique la maturité en années, mois ou jours (ACT/365F).")
+        rate = self._extract_number(lower, r"(?:\btaux|risk[- ]free(?: rate)?|\brate|\br\s*=)\s*=?\s*([+-]?\s*\d+(?:[.,]\d+)?)\s*%")
+        if rate is None and re.search(r"(?:\btaux|risk[- ]free(?: rate)?|\brate|\br\s*=)\s*=?\s*[+-]?\s*\d", lower):
+            raise ExerciseInputError("Indique le taux sans risque en pourcentage, par exemple risk-free rate 3% ou r=3%. Aucun taux nul n’a été substitué.")
+        dividend_pattern = r"(?:dividend(?:e|s)?(?:\s+(?:yield|rendement))?|rendement\s+(?:du\s+)?dividende|\bq\s*=)\s*=?\s*([+-]?\s*\d+(?:[.,]\d+)?)\s*%"
+        dividend = self._extract_number(lower, dividend_pattern)
+        if dividend is None and re.search(r"(?:dividend|dividende|\bq\s*=)\s*(?:yield\s*)?=?\s*[+-]?\d", lower):
+            raise ExerciseInputError("Indique le rendement de dividende continu en pourcentage, par exemple dividend yield 1% ou q=1%.")
         if None in (spot, strike, vol, maturity):
             return None
         sigma = vol / 100
         t = maturity
-        r = rate / 100
-        d1 = (math.log(spot / strike) + (r + 0.5 * sigma**2) * t) / (sigma * math.sqrt(t))
+        r = (rate or 0.0) / 100
+        q = (dividend or 0.0) / 100
+        try:
+            verified = analyze_black_scholes({
+                "schemaVersion": BLACK_SCHOLES_INPUT_SCHEMA, "quoteMode": "volatility", "optionType": "call",
+                "spot": spot, "strike": strike, "maturityYears": t, "dayCount": "ACT/365F",
+                "riskFreeRate": r, "dividendYield": q, "volatility": sigma, "marketPrice": None,
+                "currency": "EUR", "position": "long", "quantity": 1.0, "multiplier": 1.0,
+                "shocks": {"spotPct": 10.0, "volPoints": 5.0, "days": 30.0},
+            })
+        except ValueError as exc:
+            raise ExerciseInputError(f"Paramètres Black-Scholes invalides : {exc}") from exc
+        if sigma == 0 or t == 0:
+            raise ExerciseInputError("Cet exercice de dérivation requiert une volatilité et une maturité strictement positives. Utilise le calculateur pour les cas limites.")
+        d1 = (math.log(spot / strike) + (r - q + 0.5 * sigma**2) * t) / (sigma * math.sqrt(t))
         d2 = d1 - sigma * math.sqrt(t)
-        nd1 = self._norm_cdf(d1)
-        nd2 = self._norm_cdf(d2)
         disc_k = strike * math.exp(-r * t)
-        call = spot * nd1 - disc_k * nd2
-        put = disc_k * self._norm_cdf(-d2) - spot * self._norm_cdf(-d1)
-        parity_rhs = spot - disc_k                      # C - P doit egaler S - K e^{-rT}
-        delta = nd1
-        gamma = self._norm_pdf(d1) / (spot * sigma * math.sqrt(t))
-        vega = spot * self._norm_pdf(d1) * math.sqrt(t) / 100
+        disc_s = spot * math.exp(-q * t)
+        call, put = verified["call"]["unitPrice"], verified["put"]["unitPrice"]
+        parity_rhs = verified["parity"]["rhs"]
+        delta = verified["call"]["greeks"]["delta"]
+        gamma = verified["call"]["greeks"]["gamma"]
+        vega = verified["call"]["greeks"]["vega"]
         return CalculationPack(
             family="vanilla_option_black_scholes",
             title="Option vanilla Black-Scholes",
             assumptions=[
-                "Pas de dividende ni de carry si non precise (sinon remplacer S par S*exp(-qT) dans d1 et le prix).",
+                f"Rendement de dividende continu q={q:.2%}; taux sans risque r={r:.2%}; maturité T={t:g} année(s).",
                 "Volatilite et taux constants; exercice europeen.",
+                f"Moteur canonique F-CAL10 v{verified['engineVersion']}; analyse {verified['analysisId'][:12]}.",
             ],
             steps=[
                 CalculationStep("d1/d2", "BS d1, d2", f"d1={d1:.4f}; d2={d2:.4f}", f"d1={d1:.4f}, d2={d2:.4f}", "Variables pivots du pricing et des greeks."),
-                CalculationStep("Prix call", "S*N(d1)-K*exp(-rT)*N(d2)", f"{spot:g}*N({d1:.4f})-{strike:g}*exp(-{r:.4f}*{t:g})*N({d2:.4f})", f"{call:.4f}", "Valeur theorique du call."),
-                CalculationStep("Prix put", "K*exp(-rT)*N(-d2)-S*N(-d1)", f"{strike:g}*exp(-{r:.4f}*{t:g})*N({-d2:.4f})-{spot:g}*N({-d1:.4f})", f"{put:.4f}", "Valeur theorique du put europeen de meme strike/maturite."),
-                CalculationStep("Verification parite call-put", "C - P = S - K*exp(-rT)", f"{call:.4f} - {put:.4f} = {spot:g} - {disc_k:.4f}", f"{call - put:.4f} = {parity_rhs:.4f}", "Si les deux cotes ne collent pas, une quote est incoherente / arbitrable."),
-                CalculationStep("Greeks", "Delta=N(d1); Gamma=phi(d1)/(S sigma sqrt(T)); Vega=S phi(d1) sqrt(T)/100", f"inputs S={spot:g}, sigma={sigma:.2%}, T={t:g}", f"Delta={delta:.4f}; Gamma={gamma:.6f}; Vega/vol pt={vega:.4f}", "Base du hedge delta/vega; delta du put = delta call - 1."),
+                CalculationStep("Prix call", "S*exp(-qT)*N(d1)-K*exp(-rT)*N(d2)", f"{spot:g}*exp(-{q:.4f}*{t:g})*N({d1:.4f})-{strike:g}*exp(-{r:.4f}*{t:g})*N({d2:.4f})", f"{call:.4f}", "Valeur theorique du call, dividende continu inclus."),
+                CalculationStep("Prix put", "K*exp(-rT)*N(-d2)-S*exp(-qT)*N(-d1)", f"{strike:g}*exp(-{r:.4f}*{t:g})*N({-d2:.4f})-{spot:g}*exp(-{q:.4f}*{t:g})*N({-d1:.4f})", f"{put:.4f}", "Valeur theorique du put europeen de meme strike/maturite."),
+                CalculationStep("Verification parite call-put", "C - P = S*exp(-qT) - K*exp(-rT)", f"{call:.4f} - {put:.4f} = {disc_s:.4f} - {disc_k:.4f}", f"{call - put:.4f} = {parity_rhs:.4f}", "Verifier la parite avec le meme dividende des deux cotes."),
+                CalculationStep("Greeks", "Delta=exp(-qT)*N(d1); Gamma=exp(-qT)*phi(d1)/(S sigma sqrt(T)); Vega=S*exp(-qT)*phi(d1)*sqrt(T)/100", f"inputs S={spot:g}, sigma={sigma:.2%}, T={t:g}, q={q:.2%}", f"Delta={delta:.4f}; Gamma={gamma:.6f}; Vega/vol pt={vega:.4f}", f"Base du hedge delta/vega; delta du put = delta call - exp(-{q:g}*{t:g})."),
             ],
             desk_actions=[
                 "Comparer prix modele et prix marche.",
@@ -625,101 +661,171 @@ class PracticeCalculator:
         if None in (spot, strike, vol, maturity):
             return None
         n = int(paths) if paths else 20000
-        n = max(2, n - (n % 2))  # even for antithetic pairing
+        if n < 100 or n > 50000 or n % 2:
+            return CalculationPack(
+                family="monte_carlo_gbm",
+                title="Requete Monte Carlo refusee par le contrat de calcul",
+                assumptions=["Le moteur F-CAL-6 exige 100 a 50 000 trajectoires et un nombre pair en mode antithetique."],
+                warnings=[f"Aucun prix n'a ete calcule pour N={n:,}; corriger explicitement le nombre de trajectoires."],
+            )
         sigma, t, r = vol / 100, maturity, rate / 100
+        try:
+            result = run_monte_carlo({
+                "schemaVersion": MONTE_CARLO_INPUT_SCHEMA,
+                "mode": "pricing_risk_neutral",
+                "spot": spot,
+                "volatility": sigma,
+                "maturityYears": t,
+                "dayCount": "ACT/365F",
+                "paths": n,
+                "timeSteps": 1,
+                "seed": 20240617,
+                "method": "antithetic",
+                "samplePaths": 0,
+                "histogramBins": 20,
+                "currency": "EUR",
+                "quantity": 1,
+                "contractMultiplier": 1.0,
+                "position": "long",
+                "riskFreeRate": r,
+                "dividendYield": 0.0,
+                "strike": strike,
+                "optionType": "call",
+                "payoffType": "european",
+            })
+        except MonteCarloError as exc:
+            return CalculationPack(
+                family="monte_carlo_gbm",
+                title="Requete Monte Carlo refusee par le contrat de calcul",
+                assumptions=["Aucun input hors domaine n'est corrige ou remplace silencieusement."],
+                warnings=[f"Aucun prix n'a ete calcule: {exc}"],
+            )
+        pricing = result["pricing"]
+        price = pricing["price"]
+        se = pricing["standardError"]
+        ci_lo, ci_hi = pricing["ci95"]["lower"], pricing["ci95"]["upper"]
+        bs_ref = pricing["blackScholesBenchmark"]
         drift = (r - 0.5 * sigma**2) * t
         diff = sigma * math.sqrt(t)
-        rng = random.Random(20240617)  # fixed seed -> deterministic & reproducible
-        disc = math.exp(-r * t)
-        payoffs: list[float] = []
-        for _ in range(n // 2):
-            z = rng.gauss(0.0, 1.0)
-            for zz in (z, -z):  # antithetic variates (variance reduction)
-                st = spot * math.exp(drift + diff * zz)
-                payoffs.append(max(st - strike, 0.0))
-        mean_p = sum(payoffs) / len(payoffs)
-        price = disc * mean_p
-        var_p = sum((p - mean_p) ** 2 for p in payoffs) / (len(payoffs) - 1)
-        se = disc * math.sqrt(var_p) / math.sqrt(len(payoffs))
-        ci_lo, ci_hi = price - 1.96 * se, price + 1.96 * se
-        # closed-form BS reference for the desk to compare against
-        d1 = (math.log(spot / strike) + (r + 0.5 * sigma**2) * t) / (sigma * math.sqrt(t))
-        d2 = d1 - sigma * math.sqrt(t)
-        bs_ref = spot * self._norm_cdf(d1) - strike * math.exp(-r * t) * self._norm_cdf(d2)
         return CalculationPack(
             family="monte_carlo_gbm",
             title="Pricing Monte Carlo d'un call (GBM) avec intervalle de confiance",
             assumptions=[
-                f"GBM risque-neutre, {n:,} trajectoires, graine fixe (resultat reproductible).",
-                "Variates antithetiques pour reduire la variance.",
-                "Pas de dividende si non precise; vol et taux constants.",
+                f"GBM en mesure risque-neutre Q, ACT/365F, {n:,} trajectoires, graine visible 20240617.",
+                f"Moteur canonique F-CAL-6 v{result['engineVersion']}; analyse {result['analysisId'][:12]}.",
+                "Variates antithetiques; erreur standard calculee sur les moyennes de paires.",
+                "Dividende nul faute d'input explicite; vol et taux constants.",
             ],
             steps=[
                 CalculationStep("Simulation S_T", "S_T = S0*exp((r-0.5*sigma^2)T + sigma*sqrt(T)*Z)", f"S0={spot:g}, drift={drift:.4f}, diffusion={diff:.4f}", f"{n:,} tirages", "Echantillon de prix terminaux sous mesure risque-neutre."),
-                CalculationStep("Prix MC", "exp(-rT) * moyenne(max(S_T-K,0))", f"exp(-{r:.4f}*{t:g}) * {mean_p:.4f}", f"{price:.4f}", "Estimateur du prix; converge en 1/sqrt(N)."),
-                CalculationStep("Erreur standard", "exp(-rT)*ecart-type(payoff)/sqrt(N)", f"{disc:.4f}*{math.sqrt(var_p):.4f}/sqrt({len(payoffs)})", f"{se:.4f}", "Precision de l'estimateur; diminue en 1/sqrt(N)."),
-                CalculationStep("IC 95%", "Prix +/- 1.96 * SE", f"{price:.4f} +/- {1.96 * se:.4f}", f"[{ci_lo:.4f}; {ci_hi:.4f}]", "L'intervalle doit contenir le prix Black-Scholes ferme."),
-                CalculationStep("Reference Black-Scholes", "S*N(d1)-K*exp(-rT)*N(d2)", f"controle ferme", f"{bs_ref:.4f}", "Benchmark analytique: le MC doit tomber dans l'IC."),
+                CalculationStep("Prix MC", "exp(-rT) * moyenne(max(S_T-K,0))", f"N={n:,}; K={strike:g}; r={r:.4f}; T={t:g}", f"{price:.4f}", "Estimateur du prix; convergence controlee a N/4, N/2 et N."),
+                CalculationStep("Erreur standard", "ecart-type des moyennes de paires antithetiques / sqrt(N/2)", f"{pricing['effectiveSamples']:,} echantillons effectifs", f"{se:.4f}", "Precision statistique coherente avec la reduction de variance choisie."),
+                CalculationStep("IC 95%", "Prix +/- 1.96 * SE", f"{price:.4f} +/- {1.96 * se:.4f}", f"[{ci_lo:.4f}; {ci_hi:.4f}]", "En repetition, environ 95% des intervalles valides couvrent le prix theorique ; un intervalle particulier peut le manquer par hasard."),
+                CalculationStep("Reference Black-Scholes", "S*N(d1)-K*exp(-rT)*N(d2)", f"controle ferme", f"{bs_ref:.4f}", "Comparer l'ecart au benchmark a l'erreur standard et a la convergence ; une realisation hors IC ne prouve pas un biais."),
             ],
             desk_actions=[
                 "Augmenter N pour resserrer l'IC (cout en 1/sqrt(N)).",
                 "Utiliser antithetiques/variables de controle pour reduire la variance a cout egal.",
-                "Verifier que le prix ferme tombe dans l'IC: sinon, biais d'implementation.",
+                "Si le benchmark est hors IC, verifier les conventions et repeter sur des graines independantes ; rechercher un ecart systematique.",
             ],
-            warnings=["Un IC etroit ne corrige pas un biais de modele (drift, discretisation, payoff path-dependent)."],
+            warnings=[
+                "Un IC etroit ne corrige pas un biais de modele (smile, sauts, liquidite ou payoff mal specifie).",
+                "Ce controle europeen n'est ni une quote de marche ni un backtest de performance.",
+            ],
         )
 
     def _yield_curve_pack(self, text: str) -> CalculationPack | None:
         lower = text.lower()
         if "bootstrap" not in lower and "courbe" not in lower and "yield curve" not in lower:
             return None
-        pairs = re.findall(r"(\d+)\s*an[s]?\s*([0-9]+(?:[.,][0-9]+)?)\s*%", lower)
+        pairs = re.findall(
+            r"(\d+(?:[.,]\d+)?)\s*(?:an(?:nee)?s?|years?|y)\s*[:=]?\s*([+-]?\s*\d+(?:[.,]\d+)?)\s*%",
+            lower,
+        )
         if len(pairs) < 2:
-            pairs = re.findall(r"([0-9]+(?:[.,][0-9]+)?)\s*%\s*(?:a|à)?\s*(\d+)\s*an", lower)
+            pairs = re.findall(
+                r"([+-]?\s*\d+(?:[.,]\d+)?)\s*%\s*(?:a|à|at)?\s*(\d+(?:[.,]\d+)?)\s*(?:an(?:nee)?s?|years?|y)",
+                lower,
+            )
             pairs = [(m, r) for (r, m) in pairs]
         if len(pairs) < 2:
             return None
-        nodes = sorted(((int(m), self._parse_float(r) / 100) for m, r in pairs), key=lambda x: x[0])
+        instruments = [
+            {
+                "type": "swap",
+                "maturity": self._parse_float(maturity),
+                "quote": self._parse_float(rate) / 100,
+            }
+            for maturity, rate in pairs
+        ]
+        try:
+            curve = build_yield_curve(instruments)
+        except YieldCurveError as exc:
+            return CalculationPack(
+                family="yield_curve_bootstrap",
+                title="Construction de courbe refusee",
+                assumptions=[
+                    "Quotes interpretees comme taux de swaps par spot-starting, jambe fixe annuelle.",
+                    "Maturites exprimees en fractions d'annee; aucune extrapolation ni stub implicite.",
+                ],
+                warnings=[f"Entree de courbe invalide: {exc}"],
+            )
+
         steps: list[CalculationStep] = []
-        dfs: list[float] = []
-        cum = 0.0
-        for mat, s in nodes:
-            df = (1 - s * cum) / (1 + s)
-            dfs.append(df)
-            cum += df
-            zero = df ** (-1 / mat) - 1
+        curve_by_time = {node["time"]: node for node in curve["curve"]}
+        repricing_by_id = {
+            item["instrumentId"]: item for item in curve["repricing"]
+        }
+        for anchor in curve["anchors"]:
+            mat = anchor["time"]
+            node = curve_by_time[mat]
+            repricing = repricing_by_id[anchor["instrumentId"]]
             steps.append(CalculationStep(
-                f"DF {mat}a (par {s:.2%})",
-                "DF_n = (1 - s_n*sum(DF_<n)) / (1 + s_n)",
-                f"(1 - {s:.4f}*{cum - df:.4f}) / (1 + {s:.4f})",
-                f"DF={df:.4f}; zero {mat}a={zero:.4%}",
-                "Discount factor bootstrappe puis taux zero-coupon annualise.",
+                f"DF {mat:g}a ({repricing['type']}, quote {repricing['marketQuote']:.4%})",
+                "K*sum(alpha_i*DF_i) = 1-DF(T); coupons manquants en interpolation log-lineaire des DF",
+                f"frequence=annuelle; quote={repricing['marketQuote']:.8f}; interpolation=log-DF",
+                (
+                    f"DF={anchor['discountFactor']:.10f}; "
+                    f"zero cont={node['zeroContinuous']:.6%}; "
+                    f"zero ann={node['zeroAnnual']:.6%}; "
+                    f"residu PV={repricing['pvResidual']:.3e}"
+                ),
+                "Pilier de marche reprice a son taux par; le residu doit rester numeriquement nul.",
             ))
-        fwds = []
-        for i in range(1, len(dfs)):
-            f = dfs[i - 1] / dfs[i] - 1
-            fwds.append(f)
+        for node in curve["curve"]:
             steps.append(CalculationStep(
-                f"Forward {nodes[i - 1][0]}a->{nodes[i][0]}a",
-                "f = DF_{n-1}/DF_n - 1",
-                f"{dfs[i - 1]:.4f}/{dfs[i]:.4f} - 1",
-                f"{f:.4%}",
-                "Taux forward 1 an implicite entre deux noeuds.",
+                f"Forward {node['intervalStart']:g}a->{node['intervalEnd']:g}a",
+                "f_cont = ln(DF(S)/DF(E))/(E-S); f_simple = (DF(S)/DF(E)-1)/(E-S)",
+                (
+                    f"intervalle={node['intervalYears']:g}a; "
+                    f"DF(E)={node['discountFactor']:.10f}"
+                ),
+                (
+                    f"continu={node['forwardContinuous']:.6%}; "
+                    f"simple annualise={node['forwardSimple']:.6%}; "
+                    f"source={node['source']}"
+                ),
+                "Le libelle porte l'intervalle reel; aucun forward multi-annees n'est presente comme un forward 1 an.",
             ))
         return CalculationPack(
             family="yield_curve_bootstrap",
-            title="Bootstrap de courbe et taux forward",
+            title="Courbe mono-courbe deterministe et repricing",
             assumptions=[
-                "Swaps par annuels, frequence fixe annuelle, day-count simplifie.",
-                "Mono-courbe (pas de spread OIS/IBOR), interpolation implicite par noeud.",
+                "Swaps par spot-starting, jambe fixe annuelle et year fractions ACT/365F fournies.",
+                "Interpolation log-lineaire des discount factors entre piliers; extrapolation interdite.",
+                "Mono-courbe pedagogique: actualisation et projection confondues, sans calendrier ni stubs.",
             ],
             steps=steps,
             desk_actions=[
-                "Verifier la monotonie/cohrence des DF (decroissants) et des forwards.",
+                "Verifier le repricing de chaque instrument et lire les forwards sur leur intervalle exact.",
+                "Traiter les DF croissants ou forwards negatifs comme diagnostics de forme, pas comme erreurs automatiques.",
                 "Utiliser les DF pour actualiser tout cash-flow date sur la courbe.",
-                "Reprendre en multi-courbe (OIS discounting) pour un usage production.",
+                "Reprendre avec calendriers et courbes OIS/projection distinctes avant un usage de production.",
             ],
-            warnings=["Le bootstrap est sensible aux instruments choisis et a l'interpolation entre noeuds."],
+            warnings=[
+                *curve["diagnostics"]["warnings"],
+                "Le resultat depend des instruments, des conventions et de l'interpolation; il ne constitue pas une courbe multi-curve de production.",
+            ],
         )
 
     def _implied_vol_pack(self, text: str) -> CalculationPack | None:
@@ -734,39 +840,32 @@ class PracticeCalculator:
         if None in (spot, strike, maturity, price):
             return None
         t, r = maturity, rate / 100
-        sqt = math.sqrt(t)
-
-        def bs_call(sig: float) -> float:
-            d1 = (math.log(spot / strike) + (r + 0.5 * sig**2) * t) / (sig * sqt)
-            d2 = d1 - sig * sqt
-            return spot * self._norm_cdf(d1) - strike * math.exp(-r * t) * self._norm_cdf(d2)
-
-        sig = 0.20  # Newton seed
-        iters = 0
-        for iters in range(1, 101):
-            d1 = (math.log(spot / strike) + (r + 0.5 * sig**2) * t) / (sig * sqt)
-            vega = spot * self._norm_pdf(d1) * sqt  # per unit vol
-            diff = bs_call(sig) - price
-            if vega < 1e-10:
-                break
-            step = diff / vega
-            sig -= step
-            sig = min(max(sig, 1e-4), 5.0)
-            if abs(step) < 1e-8:
-                break
+        try:
+            verified = analyze_black_scholes({
+                "schemaVersion": BLACK_SCHOLES_INPUT_SCHEMA, "quoteMode": "market_price", "optionType": "call",
+                "spot": spot, "strike": strike, "maturityYears": t, "dayCount": "ACT/365F",
+                "riskFreeRate": r, "dividendYield": 0.0, "volatility": None, "marketPrice": price,
+                "currency": "EUR", "position": "long", "quantity": 1.0, "multiplier": 1.0,
+                "shocks": {"spotPct": 10.0, "volPoints": 5.0, "days": 30.0},
+            })
+        except ValueError:
+            return None
+        sig = verified["quote"]["impliedVolatility"]
+        solver = verified["quote"]["solver"]
         intrinsic = max(spot - strike * math.exp(-r * t), 0.0)
         return CalculationPack(
             family="implied_vol_smile",
             title="Volatilite implicite (inversion de Black-Scholes)",
             assumptions=[
                 "On inverse le prix de marche d'un call vanilla pour retrouver sigma.",
-                "Newton-Raphson amorce a 20%, derivee = vega.",
-                "Prix de marche superieur a la valeur intrinseque (sinon pas de solution).",
+                "Bisection bornee sur [0, 500%], 120 iterations maximum et tolerance prix 1e-12.",
+                "Le prix de marche doit respecter les bornes d'arbitrage inferieure et superieure.",
+                f"Moteur canonique F-CAL10 v{verified['engineVersion']}; analyse {verified['analysisId'][:12]}.",
             ],
             steps=[
                 CalculationStep("Valeur intrinseque actualisee", "max(S - K*exp(-rT), 0)", f"max({spot:g} - {strike:g}*exp(-{r:.4f}*{t:g}), 0)", f"{intrinsic:.4f}", "Plancher du prix; le market price doit etre au-dessus."),
-                CalculationStep("Inversion Newton", "sigma tel que BS(sigma) = prix marche", f"convergence en {iters} iterations", f"vol implicite = {sig:.4%}", "Volatilite que le marche 'price' dans cette option."),
-                CalculationStep("Controle", "BS(vol implicite) vs prix marche", f"BS({sig:.4f}) = {bs_call(sig):.4f}", f"cible {price:g}", "Le reprix avec la vol trouvee doit redonner le prix de marche."),
+                CalculationStep("Inversion bornee", "sigma tel que BS(sigma) = prix marche", f"convergence en {solver['iterations']} iterations; residu={solver['residual']:.3g}", f"vol implicite = {sig:.4%}", "Volatilite que le marche 'price' dans cette option."),
+                CalculationStep("Controle", "BS(vol implicite) vs prix marche", f"BS({sig:.4f}) = {verified['selected']['unitPrice']:.4f}", f"cible {price:g}", "Le reprix avec la vol trouvee doit redonner le prix de marche."),
             ],
             desk_actions=[
                 "Repeter par strike pour tracer le smile/skew (vol implicite = f(strike)).",

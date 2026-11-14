@@ -47,20 +47,24 @@ def detect_topic_key(topic: str, product: str | None, concepts: list[str] | None
         return "monte_carlo"
     if has("yield curve", "bootstrap", "discount factor", "zero curve", "forward rate", "ois"):
         return "yield_curve"
-    if has("swap", "dv01", "par rate"):
-        return "swap"
+    # A fixed-income course legitimately mentions DV01, and a vanilla-option
+    # course legitimately teaches delta/vega. Route the product family before
+    # these generic risk-measure keywords so the deterministic worked example
+    # cannot silently become a swap or an option-book exercise.
     if has("bond", "duration", "convexity", "ytm"):
         return "bond"
+    if has("swap", "dv01", "par rate"):
+        return "swap"
     if has("cds", "credit default", "cs01", "hazard rate", "protection buyer", "protection seller") or (has("credit") and has("spread", "default", "protection")):
         return "cds"
     if has("stochastic", "risk-neutral", "girsanov", "feynman") or word("ito") or word("sde"):
         return "stochastic"
     if word("var") or has("value at risk", "stress", "expected shortfall"):
         return "var"
-    if has("greek", "delta", "gamma", "vega", "theta"):
-        return "greeks"
     if has("vanilla", "black-scholes", "black scholes", "put-call", "put call"):
         return "vanilla_bs"
+    if has("greek", "delta", "gamma", "vega", "theta"):
+        return "greeks"
     return "generic"
 
 

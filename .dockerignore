@@ -15,3 +15,4 @@ tests/
 reports/
 *.md
 !scripts/_PROMOTE.md
+!pricinglibrary_rag/course_scripts/*.md

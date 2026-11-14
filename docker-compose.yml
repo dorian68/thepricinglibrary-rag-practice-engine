@@ -1,19 +1,37 @@
-# Deploy the ThePricingLibrary backend on your VPS:
-#   docker compose up -d --build
+# Deploy the ThePricingLibrary backend on your VPS after copying `.env.production.example`
+# to a server-only `.env.production` and replacing every placeholder:
+#   docker compose --env-file .env.production up -d
 # Then point the frontend at it: VITE_TPL_RAG_API_URL=https://api.your-domain.com
 #
-# Secrets (OpenAI premium prose, real Stripe) are passed via env — never baked in.
-# Without them the backend runs in offline/template + Stripe-mock mode, which is
-# fully functional for the platform data API, exercises (verified calc packs) and
-# courses. Seed starter content once with: docker compose exec api python scripts/seed_platform.py
+# Secrets are passed via env and never baked in. This production topology requires
+# an image that was built, scanned and pushed by the release pipeline, pinned by digest.
 services:
   api:
-    build: .
-    image: thepricinglibrary-backend:latest
+    image: "${TPL_IMAGE_REPOSITORY:?set the release image repository}@sha256:${TPL_IMAGE_DIGEST:?set the immutable 64-hex image digest}"
+    user: tpl
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     environment:
+      TPL_ENVIRONMENT: production
+      TPL_API_KEY: ${TPL_API_KEY:-}
+      TPL_OPERATOR_API_KEY: ${TPL_OPERATOR_API_KEY:-}
+      TPL_AUTH_TOKEN_SECRET: ${TPL_AUTH_TOKEN_SECRET:-}
+      TPL_AUTH_ISSUER: ${TPL_AUTH_ISSUER:-}
+      TPL_AUTH_AUDIENCE: ${TPL_AUTH_AUDIENCE:-authenticated}
+      TPL_AUTH_JWKS_URL: ${TPL_AUTH_JWKS_URL:-}
+      TPL_AUTH_ALGORITHMS: ${TPL_AUTH_ALGORITHMS:-ES256,RS256}
+      TPL_RATE_LIMIT_PER_MIN: ${TPL_RATE_LIMIT_PER_MIN:-60}
+      TPL_RATE_LIMIT_WINDOW_SECONDS: ${TPL_RATE_LIMIT_WINDOW_SECONDS:-60}
+      TPL_TRUST_PROXY_HEADERS: ${TPL_TRUST_PROXY_HEADERS:-false}
+      TPL_CORS_ORIGINS: ${TPL_CORS_ORIGINS:-}
       TPL_LLM_PROVIDER: ${TPL_LLM_PROVIDER:-template}      # set to "openai" for premium prose
       TPL_OPENAI_API_KEY: ${TPL_OPENAI_API_KEY:-}
       # Generation pipeline modes (safe defaults; see .env.example).
@@ -22,13 +40,26 @@ services:
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
       LLM_PROVIDER: ${LLM_PROVIDER:-}
       GENERATION_STRICT_VALIDATION: ${GENERATION_STRICT_VALIDATION:-true}
+      TPL_SOURCE_RIGHTS_CLEARED: ${TPL_SOURCE_RIGHTS_CLEARED:-false}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       STRIPE_PRICE_STARTER: ${STRIPE_PRICE_STARTER:-}
       STRIPE_PRICE_STUDENT: ${STRIPE_PRICE_STUDENT:-}
       STRIPE_PRICE_PRO: ${STRIPE_PRICE_PRO:-}
+      STRIPE_PRICE_STARTER_KIT: ${STRIPE_PRICE_STARTER_KIT:-}
+      TPL_BILLING_CHECKOUT_MODE: subscription
+      TPL_BILLING_SUCCESS_URL: "${TPL_PUBLIC_ORIGIN:?set the public HTTPS origin}/#/billing/success?session_id={CHECKOUT_SESSION_ID}"
+      TPL_BILLING_CANCEL_URL: "${TPL_PUBLIC_ORIGIN:?set the public HTTPS origin}/#/billing/cancel"
+      TPL_STARTER_KIT_BUNDLE_PATH: "/releases/starter-kit/${TPL_STARTER_KIT_BUNDLE_FILENAME:?set the verified immutable ZIP filename}"
+      TPL_STARTER_KIT_MANIFEST_PATH: /releases/starter-kit/manifest.json
+      TPL_STARTER_KIT_SUCCESS_URL: "${TPL_PUBLIC_ORIGIN:?set the public HTTPS origin}/#/starter-kit/success"
+      TPL_STARTER_KIT_CANCEL_URL: "${TPL_PUBLIC_ORIGIN:?set the public HTTPS origin}/#/starter-kit/cancel"
     volumes:
       - tpl_data:/data
+      - type: bind
+        source: ${TPL_STARTER_KIT_RELEASE_DIR:?set the host directory containing the verified release}
+        target: /releases/starter-kit
+        read_only: true
 
 volumes:
   tpl_data:

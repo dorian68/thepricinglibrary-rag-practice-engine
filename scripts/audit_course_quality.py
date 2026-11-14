@@ -16,11 +16,23 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sqlite3
+import sys
 import unicodedata
 from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DIR = BACKEND_ROOT / "generated" / "course_scripts"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from pricinglibrary_rag.api import (
+    _COURSE_REFERENCE_ALLOWLIST,
+    _public_course_markdown,
+    _reference_match_text,
+)
+
+DEFAULT_DIR = BACKEND_ROOT / "pricinglibrary_rag" / "course_scripts"
+DEFAULT_CORPUS_DB = BACKEND_ROOT / "data" / "pricinglibrary_rag.sqlite3"
 
 REQUIRED_UI_TYPES = {
     "equation",
@@ -37,6 +49,42 @@ PRACTICAL_UI_TYPES = {
     "rate_shock_table",
     "stress_table",
     "pnl_grid",
+}
+
+# Trust blockers observed during independent business review. These are not
+# stylistic preferences: each pattern encodes a materially false quant claim
+# that must fail the release gate even when the course is structurally rich.
+FORBIDDEN_QUANT_CLAIMS = {
+    "rates_must_be_positive": r"un taux d(?:'|’)interet doit etre positif",
+    "inverted_curve_is_invalid": r"taux a 3 ans ne sont pas superieurs a ceux a 5 ans",
+    "negative_curve_implies_bad_interpolation": r"taux negatifs[^.]{0,160}interpolation mal realisee",
+    "fixed_seed_biases_estimator": r"meme graine[^.]{0,180}resultats biaises",
+    "small_sample_biases_estimator": r"taille d(?:'|’)echantillon[^.]{0,180}resultats biaises",
+    "seed_change_completely_changes_result": r"change la graine[^.]{0,180}resultats completement differents",
+    "monte_carlo_predicts_future": r"capacite a predire[^.]{0,240}monte carlo",
+    "historical_prices_are_q_pricing_inputs": r"rassembler[^.]{0,140}(?:prix|donnees) historiques[^.]{0,220}(?:tarif|pricing|monte carlo)",
+    "risk_neutral_means_risk_indifferent_investors": r"investisseurs sont indifferents au risque",
+    "q_drift_depends_on_historical_return": r"drift neutre au risque[^.]{0,180}rendements historiques",
+    "volatility_predicts_spot_direction": r"hausse de la volatilite[^.]{0,180}(?:tendance haussiere|signal haussier|spot (?:monte|augmente))",
+    "volatility_growth_predicts_higher_prices": r"volatilite croissante[^.]{0,180}tendance a la hausse des prix",
+    "cds_positive_carry_means_profitable": r"signe du carry doit etre positif[^.]{0,120}profitable",
+    "cds_widening_is_always_negative": r"impact d(?:'|’)un widening est negatif",
+    "cds_existing_carry_rises_with_market_spread": r"si le spread augmente, le carry peut egalement augmenter",
+    "positive_convexity_understates_rate_up_loss": r"neglig(?:e|er)[^.]{0,120}convexite[^.]{0,220}sous-estim(?:e|er)[^.]{0,80}pertes",
+    "delta_is_always_percentage": r"delta (?:doit etre|est) exprime en pourcentage",
+    "gamma_is_always_percentage_squared": r"gamma (?:doit etre|est) exprime en pourcentage au carre",
+    "positive_delta_means_in_the_money": r"delta positif indique que l(?:'|’)option est dans la monnaie",
+    "positive_delta_means_long_position": r"delta positif (?:doit etre interprete comme|indique) une position (?:acheteuse|longue)",
+    "positive_delta_means_buy_underlying_to_hedge": r"delta positif[^.]{0,160}acheter des actions[^.]{0,80}couvr",
+    "delta_hedge_cannot_lose": r"couvre mon option[^.]{0,120}ne peux pas perdre",
+    "positive_cs01_always_means_loss": r"cs01 positif indique une perte",
+    "long_cds_always_loses_on_widening": r"spread qui s.elargit[^.]{0,180}pertes sur des positions longues en cds",
+    "cds_carry_is_always_revenue": r"carry represente le revenu genere par la detention d.un cds",
+    "historical_volatility_is_quote_input": r"prix propose est base sur une volatilite historique",
+    "call_put_delta_sign_ignores_position": r"delta est bien positif pour les options d.achat et negatif pour les options de vente",
+    "long_spread_always_positive": r"spread long doit toujours aboutir a un resultat positif",
+    "static_spread_requires_correlation_adjustment": r"prix d(?:'|’)un spread n(?:'|’)est pas simplement la somme[^.]{0,180}correlation",
+    "static_spread_leg_values_need_correlation": r"valeurs de chaque option[^.]{0,180}mais aussi leur correlation",
 }
 
 
@@ -94,8 +142,39 @@ def _source_stats(text: str) -> dict:
     return {"count": len(sources), "clean": clean, "noisy": noisy}
 
 
+def _registered_public_reference_count(public_text: str, slug: str) -> int:
+    rules = _COURSE_REFERENCE_ALLOWLIST.get(slug, ())
+    section = _section(public_text, "References du cours")
+    entries = re.findall(r"(?m)^-\s+\*.+?\*\s+—\s+«(.+)»\s*$", section)
+    return sum(
+        1
+        for entry in entries
+        if any(anchor in _reference_match_text(entry) for anchor, _, _ in rules)
+    )
+
+
+def _corpus_reference_anchors_verified(slug: str) -> bool:
+    rules = _COURSE_REFERENCE_ALLOWLIST.get(slug, ())
+    if not rules or not DEFAULT_CORPUS_DB.is_file():
+        return False
+    with sqlite3.connect(f"file:{DEFAULT_CORPUS_DB.as_posix()}?mode=ro", uri=True) as connection:
+        for anchor, document_id, chunk_index in rules:
+            row = connection.execute(
+                "SELECT content FROM chunks WHERE document_id = ? AND chunk_index = ?",
+                (document_id, chunk_index),
+            ).fetchone()
+            if row is None or anchor not in _reference_match_text(str(row[0])):
+                return False
+    return True
+
+
 def audit_one(path: Path, threshold: int = 98) -> dict:
     text = path.read_text(encoding="utf-8", errors="ignore")
+    public_text = _public_course_markdown(text)
+    # Learner-facing metrics must ignore archived/replaced markdown blocks.
+    # Otherwise a course with one visible quiz plus one commented legacy quiz
+    # is incorrectly reported as having duplicate content.
+    visible_text = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
     normalized = _norm(text)
     cours_redige = _section(text, "Cours redige")
     lesson_words = _lesson_word_counts(cours_redige)
@@ -115,7 +194,17 @@ def audit_one(path: Path, threshold: int = 98) -> dict:
     equation_blocks = ui_types.count("equation")
     formulas = equations + equation_blocks
     source_stats = _source_stats(text)
-    quiz_questions = len(re.findall(r"(?im)^\*\*Q\d+\.", text))
+    public_reference_section = _section(public_text, "References du cours")
+    public_reference_count = len(re.findall(r"(?m)^-\s+\*.+?\*\s+—\s+«.+»\s*$", public_reference_section))
+    registered_public_reference_count = _registered_public_reference_count(public_text, path.stem)
+    corpus_reference_anchors_verified = _corpus_reference_anchors_verified(path.stem)
+    public_citation_ghosts = len(
+        re.findall(
+            r"\bextraits?\b|\[s(?:\d+|x)\]|\b[ld]['’]source\b",
+            _norm(public_text),
+        )
+    )
+    quiz_questions = len(re.findall(r"(?im)^\*\*Q\d+\.", visible_text))
 
     solved_example = bool(re.search(r"(?im)^##\s+Exemple numerique resolu", text)) and bool(
         re.search(r"(?im)\bResultat\s*:", text)
@@ -132,6 +221,10 @@ def audit_one(path: Path, threshold: int = 98) -> dict:
     market_language = len(
         re.findall(r"\b(prix|pricing|p&l|sensibilite|dv01|delta|gamma|vega|spread|vol|stress|scenario)\b", normalized)
     )
+    quant_truth_violations = [
+        name for name, pattern in FORBIDDEN_QUANT_CLAIMS.items()
+        if re.search(pattern, _norm(cours_redige))
+    ]
 
     structure_score = _weighted(
         [
@@ -225,12 +318,18 @@ def audit_one(path: Path, threshold: int = 98) -> dict:
         "quiz_min_5": quiz_questions >= 5,
         "student_persona_98": student_score >= threshold,
         "young_professional_persona_98": young_professional_score >= threshold,
+        "quant_truth_claims": not quant_truth_violations,
+        "public_reference_present": public_reference_count >= 1,
+        "public_references_reviewed": registered_public_reference_count == public_reference_count,
+        "corpus_reference_anchors_verified": corpus_reference_anchors_verified,
+        "public_citation_ghosts_absent": public_citation_ghosts == 0,
     }
     for name, ok in criticals.items():
         if not ok:
             issues.append(name)
     if source_stats["noisy"]:
         issues.append(f"noisy_sources={source_stats['noisy']}")
+    issues.extend(f"forbidden_quant_claim={name}" for name in quant_truth_violations)
 
     gate = (
         "PASS"
@@ -270,6 +369,11 @@ def audit_one(path: Path, threshold: int = 98) -> dict:
             "quiz_questions": quiz_questions,
             "decision_language_hits": decision_language,
             "market_language_hits": market_language,
+            "quant_truth_violations": quant_truth_violations,
+            "public_reference_count": public_reference_count,
+            "registered_public_reference_count": registered_public_reference_count,
+            "corpus_reference_anchors_verified": corpus_reference_anchors_verified,
+            "public_citation_ghosts": public_citation_ghosts,
         },
         "criticals": criticals,
         "issues": issues,

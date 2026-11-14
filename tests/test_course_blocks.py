@@ -37,8 +37,10 @@ def test_clean_snippet_keeps_clean_prose():
 
 def test_detect_topic_key():
     assert detect_topic_key("Vanilla options desk quote", "equity option", ["Black-Scholes"]) == "vanilla_bs"
+    assert detect_topic_key("Vanilla options desk quote", "equity option", ["delta", "vega"]) == "vanilla_bs"
     assert detect_topic_key("Options book Greeks", "book", ["delta", "gamma"]) == "greeks"
     assert detect_topic_key("Interest-rate swaps and DV01", "swap", ["par rate"]) == "swap"
+    assert detect_topic_key("Fixed income bonds", "bond", ["duration", "convexity", "DV01"]) == "bond"
     assert detect_topic_key("Random unrelated topic", None, []) == "generic"
 
 

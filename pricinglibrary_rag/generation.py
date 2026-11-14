@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from .calculators import CalculationPack, PracticeCalculator
+from .calculators import CalculationPack, PracticeCalculator, ExerciseInputError
 from .course_blocks import (
     PROVENANCE_LEGEND,
     audience_for,
@@ -77,6 +77,7 @@ class MaterialGenerator:
         self.calculator = PracticeCalculator()
 
     def generate_exercise(self, request: ExerciseRequest) -> GenerationResponse:
+        from .exercise_assessment import build_assessment, assessment_matches_document
         query = self._exercise_query(request)
         context = self._build_context(
             SearchRequest(
@@ -116,6 +117,10 @@ class MaterialGenerator:
             "format": request.exercise_format,
             "calculation_pack": pack.model_dump(),
             "coherence": coherence.as_metadata(),
+            "assessment": build_assessment(request, pack),
+            "generation_mode": "template" if isinstance(self.llm, TemplateLLM) else "llm",
+            "source_grounded": bool(context.sources),
+            "scenario_used": scenario,
         }
         if not isinstance(self.llm, TemplateLLM):
             validation = validate_generated_exercise(draft, content, pack)
@@ -136,6 +141,17 @@ class MaterialGenerator:
             else:
                 # Keep the LLM prose but guarantee real, un-collapsed sources.
                 content = content.rstrip() + "\n\n" + self._verified_sources_block(context, pack.family)
+
+        # A writer cannot replace the authoritative questions, answer mapping or
+        # rubric with a different exercise. Fall back to the complete verified draft.
+        if self.strict_validation and not assessment_matches_document(content, meta["assessment"]):
+            content = draft
+            if not isinstance(self.llm, TemplateLLM):
+                meta["validation_fallback"] = True
+        if meta.get("validation_fallback"):
+            meta["generation_mode"] = "template_after_validation"
+        elif meta.get("validation", {}).get("ok") is False:
+            meta["generation_mode"] = "llm_unverified"
 
         response = GenerationResponse(
             kind="exercise",
@@ -508,8 +524,16 @@ class MaterialGenerator:
             pack, _ = self._calculation_pack(request)
         # Énoncé shows INPUTS only (no computed results -> the answer is not
         # spoiled); the corrige holds the verified worked solution.
-        inputs_block = pack.inputs_markdown()
-        worked_correction = pack.worked_correction_markdown()
+        display_pack = replace(pack, assumptions=[item for item in pack.assumptions if not item.startswith("Moteur canonique")])
+        inputs_block = display_pack.inputs_markdown()
+        worked_correction = display_pack.worked_correction_markdown()
+        from .exercise_assessment import build_assessment, assessment_markdown
+        questions, answers, rubric = assessment_markdown(build_assessment(request, pack))
+        equations = {
+            "vanilla_option_black_scholes": r"$$d_1=\frac{\ln(S/K)+(r-q+\sigma^2/2)T}{\sigma\sqrt{T}},\qquad d_2=d_1-\sigma\sqrt{T}$$" + "\n\n" + r"$$C=S e^{-qT}N(d_1)-K e^{-rT}N(d_2)$$",
+            "rates_swap_dv01": r"$$V_{\mathrm{payer}}=(R_{\mathrm{par}}-K)AN,\qquad |\mathrm{DV01}|=AN\times 10^{-4}$$",
+            "options_book_greeks": r"$$\Delta V\simeq \Delta x+\frac12\Gamma x^2+\mathrm{Vega}\,\Delta\sigma+\Theta\,\Delta t$$",
+        }.get(pack.family, "")
         calc_line = (
             "Inclure des calculs progressifs et une interpretation economique."
             if request.require_calculations
@@ -538,12 +562,20 @@ decision.
 {inputs_block}
 
 ## Questions
-{self._numbered_questions(request, pack)}
+{questions}
 
 ---
 
 ## Corrige verifie
+{equations}
+
+{answers}
+
+### Synthèse des calculs et décision
 {worked_correction}
+
+## Grille d'évaluation
+{rubric}
 
 ## References (bibliotheque)
 {self._source_lines(context, pack.family if pack is not None else None)}
@@ -859,6 +891,7 @@ A la fin de ce module, vous saurez:
         }.get(topic_key, r"\Delta V\approx \sum_i sensitivity_i\,\Delta x_i")
 
         topical = self._topic_ui_block(topic_key)
+        verified_table = self._verified_scenario_table(topic_key)
         equation_params = json.dumps({"latex": eq}, ensure_ascii=False)
         local_control_params = json.dumps(
             {
@@ -898,11 +931,7 @@ title: Decision de desk - resultat, limite, action
 params: {decision_params}
 ```
 
-```uiblock
-type: scenario_table
-title: Table de scenarios - lecture prix / risque / P&L
-params: {{"rowLabel":"Scenario", "cols":["Base","Choc modere","Stress"], "rows":["Prix / valeur","Risque 1er ordre","Decision"], "cells":[["100.00","97.50","90.20"],["0","-250k","-980k"],["Quote","Hedge","Escalate"]]}}
-```
+{verified_table}
 
 {topical}
 
@@ -912,19 +941,66 @@ title: Matrice de co-mouvements a surveiller
 params: {{"labels":["Spot","Vol","Rates","Credit"], "matrix":[[1, -0.35, 0.12, -0.20],[-0.35,1,-0.08,0.30],[0.12,-0.08,1,0.25],[-0.20,0.30,0.25,1]]}}
 ```
 
-```uiblock
-type: scenario_table
-title: Controle de provenance et profondeur du cours
-params: {{"rowLabel":"Gate", "cols":["Exigence","Statut"], "rows":["Sources RAG","Calculs moteur","Cas pratiques","UI blocks"], "cells":[["{source_count} sources citees","PASS"],["Resultats avec unites","PASS"],["Exercice + correction + quiz","PASS"],["Equation + scenario + risque","PASS"]]}}
-```
 """.strip()
 
+    def _verified_scenario_table(self, topic_key: str) -> str:
+        """Publish only calculator-backed values in the numeric course table."""
+        seeded = seed_for_topic(topic_key)
+        if not seeded:
+            rows = ["Input", "Control", "Decision"]
+            cells = [
+                ["Declared teaching case", "Units and conventions", "Run a validated calculator"],
+                ["No market-data claim", "No silent fallback", "Escalate unsupported product"],
+                ["Result unavailable", "Do not invent a number", "Document model boundary"],
+            ]
+        else:
+            family, scenario = seeded
+            pack = self.calculator.build_pack(scenario, family_hint=family)
+            selected_steps = list(pack.steps[:5])
+            rows = [step.label for step in selected_steps]
+            cells = [
+                [step.substitution, step.result, step.desk_comment]
+                for step in selected_steps
+            ]
+            if not rows:
+                rows = ["Model boundary"]
+                cells = [[scenario, "No verified result", "Do not publish a numeric claim"]]
+        params = json.dumps(
+            {
+                "rowLabel": "Calculator gate",
+                "cols": ["Substitution", "Verified result", "Desk reading"],
+                "rows": rows,
+                "cells": cells,
+                "sourceStatus": "Deterministic teaching calculator; not live market data.",
+            },
+            ensure_ascii=False,
+        )
+        return (
+            "```uiblock\n"
+            "type: scenario_table\n"
+            "title: Calcul moteur - resultat, controle et decision\n"
+            f"params: {params}\n"
+            "```"
+        )
+
     def _topic_ui_block(self, topic_key: str) -> str:
-        if topic_key in {"vanilla_bs", "barrier", "autocall"}:
+        if topic_key == "vanilla_bs":
             return """```uiblock
 type: payoff
 title: Payoff interactif - intuition du produit
-params: {"strike":100, "spot":100}
+params: {"kind":"call", "strike":100, "spot":100, "premium":10, "qty":1}
+```"""
+        if topic_key == "barrier":
+            return """```uiblock
+type: payoff
+title: Payoff barriere - chemin et knock-out
+params: {"kind":"barrier", "strike":100, "spot":100, "barrier":80, "rebate":0}
+```"""
+        if topic_key == "autocall":
+            return """```uiblock
+type: payoff
+title: Payoff autocall - observations et protection
+params: {"kind":"autocall", "spot":100, "notional":1000, "autocallBarrier":1.0, "couponBarrier":0.7, "protectionBarrier":0.6, "couponRate":0.08}
 ```"""
         if topic_key == "vol_smile":
             return """```uiblock
@@ -2184,6 +2260,8 @@ Retrieved context:
         pack = self.calculator.build_pack(text, family_hint=family_hint)
         if pack.steps or not request.require_calculations:
             return pack, (request.free_prompt or "Aucune contrainte numerique imposee.")
+        if request.free_prompt and re.search(r"\d", request.free_prompt):
+            raise ExerciseInputError("Les paramètres chiffrés ne sont pas tous reconnaissables pour ce produit. Utilise les noms et unités du preset ; aucun autre scénario n’a été substitué.")
         # The request carried no parseable numbers, so the calculator produced no
         # answer key. Seed a topic-appropriate verified scenario so the exercise
         # still ships a real, computed correction (F-EXO-3), mirroring the course

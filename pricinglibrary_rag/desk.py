@@ -147,6 +147,7 @@ class DeskOrchestrator:
     def run(self, query: str) -> dict:
         from .desk_agents import get_floor
         from .desk_state import get_room
+        from .tool_registry import get_tool_registry
 
         parsed = parse_request(query)
         parsed["_q"] = (query or "").lower()  # raw text for desk routing (exotics keywords)
@@ -181,6 +182,7 @@ class DeskOrchestrator:
                             max_tokens=80).strip().split("\n")[0][:280] or a["output"]
                     except Exception:  # noqa: BLE001
                         pass
+        registry_report = get_tool_registry().coverage_report()
         return {
             "query": query,
             "parsed": {k: parsed[k] for k in ("underlying", "horizon", "view", "intention", "objective", "factor")},
@@ -191,6 +193,11 @@ class DeskOrchestrator:
             "quote": fr["quote"], "risk": fr["risk"], "report": fr["report"],
             "agents": agents, "audit_trail": fr["audit_trail"],
             "roster": floor.roster(),
+            "tool_registry": {
+                "agent_count": registry_report["agent_count"],
+                "tool_count": registry_report["tool_count"],
+                "all_ok": registry_report["all_ok"],
+            },
             "disclaimer": "Educational simulation — indicative analytics, this is not investment advice.",
         }
 

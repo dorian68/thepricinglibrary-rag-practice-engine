@@ -21,7 +21,8 @@ from .providers import get_provider, provider_status
 __all__ = ["aspirate", "aspirate_intraday", "aspirate_hf", "download_one", "get_history",
            "get_intraday", "get_hf_ohlcv", "get_kaggle_ohlcv", "latest_price", "cache",
            "get_provider", "provider_status", "DEFAULT_CATALOG", "by_asset_class",
-           "Provider", "ProviderError", "OHLCV", "csv_path_for", "INTRADAY_INTERVALS"]
+           "Provider", "ProviderError", "OHLCV", "csv_path_for", "resolve_source",
+           "history_provenance", "INTRADAY_INTERVALS"]
 
 INTRADAY_INTERVALS = ["1m", "5m", "15m", "30m", "1h"]
 
@@ -36,6 +37,43 @@ def _resolve(symbol: str, provider: str | None):
     if symbol in _SYMBOL_INDEX:
         return _SYMBOL_INDEX[symbol][0], symbol
     return "yfinance", symbol
+
+
+def resolve_source(symbol: str, provider: str | None = None) -> tuple[str, str]:
+    """Return the provider and source symbol used by the history loader."""
+    return _resolve(symbol, provider)
+
+
+def history_provenance(symbol: str, provider: str | None, frame: pd.DataFrame,
+                       *, cache_hit: bool) -> dict:
+    """Build explicit learner-facing provenance for a historical series."""
+    resolved_provider, resolved_symbol = _resolve(symbol, provider)
+    catalog_row = next(
+        (row for row in DEFAULT_CATALOG if row[0] == resolved_symbol and row[1] == resolved_provider),
+        None,
+    )
+    asset_class = catalog_row[2] if catalog_row else "unknown"
+    unit = {
+        "rates": "percent yield",
+        "credit": "percent spread/yield",
+        "fx": "quote currency per base currency",
+        "commodity": "provider-native price unit",
+        "crypto": "provider-native price unit",
+    }.get(asset_class, "provider-native price unit")
+    as_of = frame.index.max().date().isoformat() if len(frame) else None
+    source_label = f"{resolved_provider}:{resolved_symbol}"
+    return {
+        "source": source_label,
+        "status": "cached_snapshot" if cache_hit else "provider_refresh_cached",
+        "as_of_date": as_of,
+        "unit": unit,
+        "asset_class": asset_class,
+        "limitations": [
+            "daily historical OHLCV",
+            "local cache may be stale",
+            "not an executable quote or investment signal",
+        ],
+    }
 
 
 def get_history(symbol: str, *, provider: str | None = None,

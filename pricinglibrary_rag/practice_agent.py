@@ -18,7 +18,6 @@ class PracticeAgent:
     def create_exercise(self, request: ExerciseRequest) -> GenerationResponse:
         augmented = request.model_copy(
             update={
-                "free_prompt": self._augment_exercise_prompt(request),
                 "require_calculations": True,
                 "target_audience": (
                     "learners training for market finance, pricing, risk, "

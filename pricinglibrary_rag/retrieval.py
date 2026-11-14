@@ -345,6 +345,31 @@ class LexicalRetriever(LocalRetriever):
     def __init__(self, store: LocalStore, embeddings: EmbeddingBackend) -> None:
         super().__init__(store, embeddings, vector_weight=0.0, lexical_weight=1.0)
 
+    def retrieve(self, query: str, top_k: int = 8, *, product=None, concept=None,
+                 asset_class=None, tags=None, usable_only=False, min_quality=None) -> list[RetrievedChunk]:
+        # Lexical retrieval must not load/parse the entire embedding store.
+        # FTS selects a bounded set; BM25 and the existing quality controls rank it.
+        ids = self.store.fts_candidate_ids(query, limit=min(max(top_k * 20, 160), 512))
+        if not ids:
+            return []
+        chunks = self.store.iter_chunks(chunk_ids=ids, include_embeddings=False,
+                                        product=product, concept=concept, asset_class=asset_class, tags=tags or [])
+        if len(chunks) < max(top_k, 4):
+            chunks = self.store.iter_chunks(chunk_ids=ids, include_embeddings=False)
+        if usable_only or min_quality is not None:
+            qualified = [c for c in chunks if (not usable_only or c.usable_for_course)
+                         and (min_quality is None or (c.quality_score or 0) >= min_quality)]
+            if len(qualified) >= min(top_k, len(chunks)):
+                chunks = qualified
+        if not chunks:
+            return []
+        scores = self._bm25_scores(query, chunks)
+        normalized = self._normalize_scores(scores)
+        ranked = sorted(range(len(chunks)), key=lambda i: (
+            -(float(normalized[i]) * (0.35 + 0.65 * self._quality_score(chunks[i].content))), chunks[i].id))
+        return [RetrievedChunk(chunk=chunks[i], score=float(normalized[i]), vector_score=0.0,
+                               lexical_score=float(scores[i])) for i in ranked[:max(top_k, 1)] if scores[i] > 0]
+
 
 class SemanticRetriever(LocalRetriever):
     """Embedding-cosine driven ranking. Only as good as the embedding backend

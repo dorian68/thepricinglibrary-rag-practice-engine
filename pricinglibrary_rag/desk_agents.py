@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from .desk_state import bs
+from .tool_registry import DESK_ROLES, role_tool_names
 
 
 def _ncdf(x: float) -> float:
@@ -167,6 +168,10 @@ class DeskKit:
     price: Callable
     risk: Callable
     quote: Callable
+
+
+def _tools_for_desk(desk: str) -> dict[str, list[str]]:
+    return {role: role_tool_names(role, desk=desk) for role in DESK_ROLES}
 
 
 # ---- shared quote builder --------------------------------------------------
@@ -345,64 +350,22 @@ def _cvol_risk(spec, pricing):
 
 DESKS: dict[str, DeskKit] = {
     "Commodities": DeskKit("Commodities", ["commodity option", "commodity-linked note"],
-        {"Sales": ["capture_rfq", "explain_commodity_product", "send_quote"],
-         "Structurer": ["build_commodity_option_spec", "build_call_spread_spec", "build_collar_spec", "draft_term_sheet"],
-         "Market Data": ["load_commodity_curve", "load_commodity_vol"],
-         "Quant": ["select_commodity_model", "calibrate_vol"],
-         "Pricing": ["price_commodity_option", "compute_commodity_greeks"],
-         "Trader": ["make_commodity_quote", "apply_bid_ask", "build_futures_hedge", "update_book"],
-         "Risk": ["compute_vega", "compute_gamma", "gap_risk", "check_commodity_limits"],
-         "Report": ["generate_termsheet", "pricing_note"]},
+        _tools_for_desk("Commodities"),
         _comm_spec, _comm_market, _comm_model, _comm_price, _comm_risk, lambda p, s: _quote(p, s, 0.04)),
     "Rates": DeskKit("Rates", ["swap", "cap/floor", "swaption", "callable note"],
-        {"Sales": ["capture_rfq", "explain_rates_product", "send_quote"],
-         "Structurer": ["build_swap_spec", "build_cap_floor_spec", "build_swaption_spec", "draft_term_sheet"],
-         "Market Data": ["load_ois_curve", "load_swap_curve", "load_swaption_vol"],
-         "Quant": ["select_rates_model", "bootstrap_curve", "calibrate_hull_white"],
-         "Pricing": ["price_swap", "price_cap_floor", "price_swaption", "compute_rate_greeks"],
-         "Trader": ["make_rates_quote", "apply_bid_ask", "build_dv01_hedge", "update_book"],
-         "Risk": ["compute_dv01", "compute_convexity", "curve_risk", "check_rate_limits"],
-         "Report": ["generate_rates_termsheet", "pricing_note"]},
+        _tools_for_desk("Rates"),
         _rates_spec, _rates_market, _rates_model, _rates_price, _rates_risk, lambda p, s: _quote(p, s, 0.04)),
     "Credit": DeskKit("Credit", ["CDS", "credit-linked note", "corporate bond"],
-        {"Sales": ["capture_rfq", "explain_credit_product", "send_quote"],
-         "Structurer": ["build_cds_spec", "build_cln_spec", "draft_term_sheet"],
-         "Market Data": ["load_credit_curve", "load_cds_spreads", "load_recovery"],
-         "Quant": ["select_credit_model", "bootstrap_hazard_curve", "calibrate_survival"],
-         "Pricing": ["price_cds", "price_cln", "compute_cs01"],
-         "Trader": ["make_credit_quote", "apply_bid_ask", "build_cs01_hedge", "update_book"],
-         "Risk": ["compute_cs01", "jump_to_default", "concentration_risk", "check_credit_limits"],
-         "Report": ["generate_credit_termsheet", "risk_memo"]},
+        _tools_for_desk("Credit"),
         _credit_spec, _credit_market, _credit_model, _credit_price, _credit_risk, lambda p, s: _quote(p, s, 0.04)),
     "FX": DeskKit("FX", ["FX forward", "FX option", "FX swap"],
-        {"Sales": ["capture_rfq", "explain_fx_product", "send_quote"],
-         "Structurer": ["build_fx_forward_spec", "build_fx_option_spec", "draft_term_sheet"],
-         "Market Data": ["load_fx_spot", "load_fwd_points", "load_fx_vol_surface"],
-         "Quant": ["select_fx_model", "calibrate_fx_vol"],
-         "Pricing": ["price_fx_forward", "price_fx_option", "compute_fx_greeks"],
-         "Trader": ["make_fx_quote", "apply_bid_ask", "build_delta_hedge", "update_book"],
-         "Risk": ["compute_fx_delta", "compute_fx_vega", "gap_risk", "check_fx_limits"],
-         "Report": ["generate_fx_termsheet", "pricing_note"]},
+        _tools_for_desk("FX"),
         _fx_spec, _fx_market, _fx_model, _fx_price, _fx_risk, lambda p, s: _quote(p, s, 0.05)),
     "Exotics": DeskKit("Exotics", ["autocall", "barrier", "range accrual", "structured note"],
-        {"Sales": ["capture_rfq", "explain_structured_product", "send_indicative"],
-         "Structurer": ["build_autocall_spec", "build_barrier_spec", "build_range_accrual_spec", "draft_term_sheet"],
-         "Market Data": ["load_vol_surface", "load_correlation_matrix", "load_dividend_curve"],
-         "Quant": ["select_exotic_model", "calibrate_local_stoch_vol", "run_monte_carlo"],
-         "Pricing": ["price_autocall_mc", "price_barrier", "compute_exotic_greeks"],
-         "Trader": ["make_structured_quote", "apply_structuring_margin", "build_vega_correl_hedge", "update_book"],
-         "Risk": ["compute_vega", "compute_correlation_risk", "compute_gamma", "gap_risk", "check_exotic_limits"],
-         "Report": ["generate_termsheet", "structured_pricing_note"]},
+        _tools_for_desk("Exotics"),
         _exotic_spec, _exotic_market, _exotic_model, _exotic_price, _exotic_risk, lambda p, s: _quote(p, s, 0.06)),
     "CryptoVol": DeskKit("CryptoVol", ["BTC/ETH option", "vol surface trade", "variance / vol swap", "structured note"],
-        {"Sales": ["capture_rfq", "explain_crypto_option", "send_quote"],
-         "Structurer": ["build_crypto_option_spec", "build_risk_reversal_spec", "build_calendar_spec", "draft_term_sheet"],
-         "Market Data": ["fetch_deribit_chain", "load_vol_surface", "load_realized_vol", "load_index_price"],
-         "Quant": ["select_crypto_model", "calibrate_svi_smile", "compute_skew"],
-         "Pricing": ["price_crypto_option", "compute_crypto_greeks", "compute_implied_vol"],
-         "Trader": ["make_crypto_quote", "apply_bid_ask", "build_delta_hedge", "update_book"],
-         "Risk": ["compute_vega", "compute_gamma", "weekend_gap_risk", "check_crypto_limits"],
-         "Report": ["generate_termsheet", "vol_pricing_note"]},
+        _tools_for_desk("CryptoVol"),
         _cvol_spec, _cvol_market, _cvol_model, _cvol_price, _cvol_risk, lambda p, s: _quote(p, s, 0.05)),
 }
 

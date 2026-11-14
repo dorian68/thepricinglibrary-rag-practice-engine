@@ -61,9 +61,19 @@ class Settings:
     chunk_overlap_chars: int
     max_context_chunks: int
     # --- public-deployment guards (defaulted so local callers keep working) --
+    environment: str = "development"
     cors_origins: tuple[str, ...] = ()
     api_key: str | None = None
+    operator_api_key: str | None = None
+    auth_token_secret: str | None = None
+    auth_issuer: str | None = None
+    auth_audience: str | None = None
+    auth_jwks_url: str | None = None
+    auth_jwks_json: str | None = None
+    auth_algorithms: tuple[str, ...] = ("ES256", "RS256")
     rate_limit_per_min: int = 0
+    rate_limit_window_seconds: int = 60
+    trust_proxy_headers: bool = False
     # --- generation / retrieval pipeline modes (safe defaults) ------------
     # generation_mode: "template" (deterministic, zero API) | "llm" (LLM writer).
     # retrieval_mode:  "lexical" | "semantic" | "hybrid".
@@ -82,6 +92,15 @@ class Settings:
     billing_checkout_mode: str = "subscription"
     billing_success_url: str = "http://localhost:5173/billing/success?session_id={CHECKOUT_SESSION_ID}"
     billing_cancel_url: str = "http://localhost:5173/pricing"
+    starter_kit_price_id: str | None = None
+    starter_kit_bundle_path: Path | None = None
+    starter_kit_manifest_path: Path | None = None
+    starter_kit_success_url: str = "http://localhost:5173/#/starter-kit/success"
+    starter_kit_cancel_url: str = "http://localhost:5173/#/starter-kit/cancel"
+    course_scripts_dir: Path | None = None
+    # This is an operator assertion backed by reports/rights_clearance_evidence.json.
+    # It defaults false and never grants rights by itself.
+    source_rights_cleared: bool = False
 
     @property
     def billing_configured(self) -> bool:
@@ -89,6 +108,21 @@ class Settings:
         one price). When False the service runs in offline 'mock' mode and never
         touches real money."""
         return bool(self.stripe_secret_key) and bool(self.stripe_prices)
+
+    @property
+    def starter_kit_checkout_configured(self) -> bool:
+        """One-shot product checkout is independent from subscriptions."""
+        return bool(self.stripe_secret_key) and bool(self.starter_kit_price_id)
+
+    @property
+    def commercial_content_ready(self) -> bool:
+        """Production sales require an operator-backed source-rights review."""
+        return not self.security_enforced or self.source_rights_cleared
+
+    @property
+    def security_enforced(self) -> bool:
+        """Strict-by-default outside explicitly local/test environments."""
+        return self.environment not in {"development", "dev", "local", "test"}
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -149,13 +183,27 @@ class Settings:
             chunk_target_chars=int(os.environ.get("TPL_CHUNK_TARGET_CHARS", "2600")),
             chunk_overlap_chars=int(os.environ.get("TPL_CHUNK_OVERLAP_CHARS", "350")),
             max_context_chunks=int(os.environ.get("TPL_MAX_CONTEXT_CHUNKS", "8")),
+            environment=os.environ.get("TPL_ENVIRONMENT", "development").strip().lower(),
             cors_origins=tuple(
                 o.strip()
                 for o in os.environ.get("TPL_CORS_ORIGINS", "").split(",")
                 if o.strip()
             ),
             api_key=os.environ.get("TPL_API_KEY") or None,
+            operator_api_key=os.environ.get("TPL_OPERATOR_API_KEY") or None,
+            auth_token_secret=os.environ.get("TPL_AUTH_TOKEN_SECRET") or None,
+            auth_issuer=os.environ.get("TPL_AUTH_ISSUER") or None,
+            auth_audience=os.environ.get("TPL_AUTH_AUDIENCE") or None,
+            auth_jwks_url=os.environ.get("TPL_AUTH_JWKS_URL") or None,
+            auth_jwks_json=os.environ.get("TPL_AUTH_JWKS_JSON") or None,
+            auth_algorithms=tuple(
+                algorithm.strip()
+                for algorithm in os.environ.get("TPL_AUTH_ALGORITHMS", "ES256,RS256").split(",")
+                if algorithm.strip()
+            ),
             rate_limit_per_min=int(os.environ.get("TPL_RATE_LIMIT_PER_MIN", "0")),
+            rate_limit_window_seconds=int(os.environ.get("TPL_RATE_LIMIT_WINDOW_SECONDS", "60")),
+            trust_proxy_headers=_env_bool("TPL_TRUST_PROXY_HEADERS", False),
             generation_mode=generation_mode,
             retrieval_mode=retrieval_mode,
             embedding_provider=embedding_provider,
@@ -178,6 +226,31 @@ class Settings:
             ),
             billing_cancel_url=os.environ.get(
                 "TPL_BILLING_CANCEL_URL", "http://localhost:5173/pricing"
+            ),
+            starter_kit_price_id=os.environ.get("STRIPE_PRICE_STARTER_KIT") or None,
+            starter_kit_bundle_path=(
+                _path_from_env("TPL_STARTER_KIT_BUNDLE_PATH", "")
+                if os.environ.get("TPL_STARTER_KIT_BUNDLE_PATH")
+                else None
+            ),
+            starter_kit_manifest_path=(
+                _path_from_env("TPL_STARTER_KIT_MANIFEST_PATH", "")
+                if os.environ.get("TPL_STARTER_KIT_MANIFEST_PATH")
+                else None
+            ),
+            starter_kit_success_url=os.environ.get(
+                "TPL_STARTER_KIT_SUCCESS_URL",
+                "http://localhost:5173/#/starter-kit/success",
+            ),
+            starter_kit_cancel_url=os.environ.get(
+                "TPL_STARTER_KIT_CANCEL_URL",
+                "http://localhost:5173/#/starter-kit/cancel",
+            ),
+            source_rights_cleared=_env_bool("TPL_SOURCE_RIGHTS_CLEARED", False),
+            course_scripts_dir=(
+                _path_from_env("TPL_COURSE_SCRIPTS_DIR", "")
+                if os.environ.get("TPL_COURSE_SCRIPTS_DIR")
+                else Path(__file__).resolve().parent / "course_scripts"
             ),
         )
 

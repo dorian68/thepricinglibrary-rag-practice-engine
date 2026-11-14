@@ -20,3 +20,11 @@ backend*.log
 research/artifacts/
 *.parquet
 
+# Local test output, generated corpus derivatives and private paid lessons.
+.pytest_*/
+.tmp/
+.codex-temp/
+generated*/
+pricinglibrary_rag/course_scripts/*
+!pricinglibrary_rag/course_scripts/README.md
+

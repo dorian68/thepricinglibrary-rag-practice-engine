@@ -18,9 +18,22 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 
+def _default_documents_root(module_path: Path) -> Path:
+    """Return the sibling-project root without assuming host path depth.
+
+    The developer checkout is nested deeply enough for ``parents[4]`` while
+    the Docker module lives at ``/app/pricinglibrary_rag/integrations.py``.
+    Falling back to the filesystem anchor keeps optional sibling integrations
+    absent (their supported container state) instead of crashing API import.
+    """
+
+    parents = module_path.resolve().parents
+    return parents[4] if len(parents) > 4 else parents[-1]
+
+
 # …/documents/THEPRICINGLIBRARY/Tools/pricinglibrary_rag_backend/pricinglibrary_rag/integrations.py
 # parents[4] == …/documents  (the common parent of the 3 sibling projects)
-_DOCS = Path(__file__).resolve().parents[4]
+_DOCS = _default_documents_root(Path(__file__))
 
 
 def _candidates(env: str, *rel: str) -> list[Path]:
