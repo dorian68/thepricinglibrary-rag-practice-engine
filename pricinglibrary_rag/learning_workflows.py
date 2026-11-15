@@ -94,6 +94,82 @@ class StudyCalendar(StrictBody):
 
 
 class LearningStore:
+    @staticmethod
+    def progress_summary(db, owner):
+        """Project existing owner records without initialising or mutating state.
+
+        This takes the caller's read transaction so dashboard events, interview
+        and learning counts describe one snapshot. Written reviews are learner
+        actions; a finished Survival run is not a mastery certificate.
+        """
+        result={"schema_version":"tpl.learning.progress.v1",
+            "exercise_attempt_count":0,"exercise_review_count":0,
+            "survival_run_count":0,"survival_answer_count":0,"survival_completed_count":0,
+            "last_activity_at":None,"exercise_last_activity_at":None,"survival_last_activity_at":None,
+            "exercise_resume":None,"survival_resume":None,"mastery_certified":False}
+        tables={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN "
+            "('learning_exercise_attempts','learning_exercise_reviews','learning_survival')")}
+        def timestamp(value):
+            try:
+                value=float(value)
+                if not math.isfinite(value) or value<0:return None
+                datetime.fromtimestamp(value,timezone.utc)
+                return value
+            except (TypeError,ValueError,OverflowError,OSError):
+                return None
+        def iso(value):
+            return datetime.fromtimestamp(value,timezone.utc).isoformat() if value is not None else None
+        exercise_last=survival_last=None
+        exercise_candidates=[]
+        if "learning_exercise_attempts" in tables:
+            if "learning_exercise_reviews" in tables:
+                rows=db.execute("SELECT a.id,a.exercise_id,a.created_at,a.rowid AS insertion_order,"
+                    "COUNT(r.id) AS reviews,MAX(r.created_at) AS reviewed_at "
+                    "FROM learning_exercise_attempts a LEFT JOIN learning_exercise_reviews r "
+                    "ON r.attempt_id=a.id AND r.owner_id=a.owner_id WHERE a.owner_id=? "
+                    "GROUP BY a.id,a.exercise_id,a.created_at,a.rowid",(owner,))
+            else:
+                rows=db.execute("SELECT id,exercise_id,created_at,rowid AS insertion_order,0 AS reviews,"
+                    "NULL AS reviewed_at FROM learning_exercise_attempts WHERE owner_id=?",(owner,))
+            for row in rows:
+                result["exercise_attempt_count"]+=1
+                result["exercise_review_count"]+=row["reviews"]
+                times=[value for value in (timestamp(row["created_at"]),timestamp(row["reviewed_at"])) if value is not None]
+                latest=max(times) if times else None
+                if latest is not None:exercise_last=max(exercise_last or latest,latest)
+                if (re.fullmatch(r"exa_[a-f0-9]{32}",str(row["id"]))
+                        and re.fullmatch(r"[a-z][a-z0-9_-]{0,99}",str(row["exercise_id"]))):
+                    exercise_candidates.append((latest if latest is not None else -1,row["insertion_order"],
+                        {"exercise_id":row["exercise_id"],"attempt_id":row["id"],"review_count":row["reviews"],
+                         "last_activity_at":iso(latest),"path":f"/exercises/{row['exercise_id']}?attempt={row['id']}"}))
+            if exercise_candidates:result["exercise_resume"]=max(exercise_candidates,key=lambda item:item[:2])[2]
+        survival_candidates=[]
+        if "learning_survival" in tables:
+            for row in db.execute("SELECT id,state,updated_at,rowid AS insertion_order FROM learning_survival WHERE owner_id=?",(owner,)):
+                result["survival_run_count"]+=1
+                latest=timestamp(row["updated_at"])
+                if latest is not None:survival_last=max(survival_last or latest,latest)
+                try:state=json.loads(row["state"])
+                except (TypeError,ValueError):continue
+                if not isinstance(state,dict):continue
+                history=state.get("history")
+                answered=len(history) if isinstance(history,list) else 0
+                completed=state.get("completed") is True
+                result["survival_answer_count"]+=answered
+                result["survival_completed_count"]+=int(completed)
+                if not re.fullmatch(r"srv_[a-f0-9]{32}",str(row["id"])):continue
+                phase="complete" if completed else "feedback" if state.get("feedback") is not None else "answer"
+                survival_candidates.append((not completed,latest if latest is not None else -1,row["insertion_order"],
+                    {"run_id":row["id"],"wave":"core","phase":phase,"answered_count":answered,
+                     "total_questions":len(BANK),"completed":completed,"last_activity_at":iso(latest),
+                     "path":f"/survival/core?run={row['id']}"}))
+            if survival_candidates:result["survival_resume"]=max(survival_candidates,key=lambda item:item[:3])[3]
+        result["exercise_last_activity_at"]=iso(exercise_last)
+        result["survival_last_activity_at"]=iso(survival_last)
+        times=[value for value in (exercise_last,survival_last) if value is not None]
+        result["last_activity_at"]=iso(max(times)) if times else None
+        return result
+
     def __init__(self, db_path):
         self.db_path = str(db_path)
         with self.connect() as db:

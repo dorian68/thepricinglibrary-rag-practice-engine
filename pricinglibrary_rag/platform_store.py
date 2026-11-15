@@ -354,6 +354,7 @@ class PlatformStore:
 
     def progress_summary(self, user_id: str) -> dict:
         from .interview_lab import InterviewLabStore
+        from .learning_workflows import LearningStore
 
         with self._connect() as conn:
             # One consistent read snapshot; no fabricated legacy completion or
@@ -368,6 +369,7 @@ class PlatformStore:
                 (user_id,),
             ).fetchall()
             interview = InterviewLabStore.progress_summary(conn, user_id)
+            learning = LearningStore.progress_summary(conn, user_id)
         events = [dict(kind=r["kind"], ref=r["ref"], score=r["score"],
                        meta=json.loads(r["meta"] or "{}"), created_at=r["created_at"]) for r in rows]
         # day buckets for the heatmap (last 91 days)
@@ -394,6 +396,7 @@ class PlatformStore:
         return {
             "events": len(events),
             "interview": interview,
+            "learning": learning,
             "completed_lessons": sorted({e["ref"] for e in events if e["kind"] == "lesson" and e["ref"]}),
             "course_positions": [dict(row) for row in positions],
             "active_days": active_days,

@@ -76,7 +76,8 @@ jobs:
             tests/test_realized_volatility.py tests/test_vol_surface.py \
             tests/test_yield_curve.py tests/test_learner_cli.py \
             tests/test_learner_transport.py tests/test_cli_auth.py \
-            tests/test_learning_workflows.py tests/test_practice_references.py \
+            tests/test_learning_workflows.py tests/test_learning_progress.py \
+            tests/test_practice_references.py \
             tests/test_course_publication.py tests/test_english_courses.py \
             tests/test_trust_hardening.py
       - name: Run the real API interview journey with isolated signed learners
