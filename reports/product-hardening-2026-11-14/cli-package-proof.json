@@ -1,0 +1,166 @@
+{
+  "verdict": "PASS",
+  "wheel": "pricinglibrary_rag_backend-0.1.0-py3-none-any.whl",
+  "sha256": "ff0a2a4e990b1ab6b2a67421cc965320482af988c18532ef8e1044b4e0024551",
+  "paid_course_files_packaged": false,
+  "dependency_environment": "current interpreter; isolated install prefix",
+  "entrypoint": "tpl",
+  "entrypoint_started_outside_checkout": true,
+  "catalog": {
+    "schema": "tpl.cli.coverage.v1",
+    "commands": {
+      "doctor": [],
+      "coverage": [],
+      "auth": [
+        "dev-session",
+        "login",
+        "logout",
+        "password",
+        "recover",
+        "refresh",
+        "signup",
+        "verify",
+        "whoami"
+      ],
+      "courses": [
+        "complete",
+        "list",
+        "open",
+        "preview",
+        "progress",
+        "read",
+        "resume"
+      ],
+      "interview": [
+        "answer",
+        "calendar",
+        "catalog",
+        "export",
+        "metrics",
+        "onboard",
+        "resume",
+        "reveal",
+        "review",
+        "state",
+        "task"
+      ],
+      "exercises": [
+        "answer",
+        "attempt",
+        "attempts",
+        "catalog",
+        "export",
+        "export-attempt",
+        "export-reference",
+        "generate",
+        "library",
+        "open",
+        "reference",
+        "review",
+        "run-reference",
+        "task"
+      ],
+      "tools": [
+        "example",
+        "list",
+        "run"
+      ],
+      "forum": [
+        "create",
+        "list",
+        "reply",
+        "thread",
+        "vote"
+      ],
+      "jobs": [
+        "apply",
+        "list",
+        "publish",
+        "sources"
+      ],
+      "blog": [
+        "list",
+        "open",
+        "publish"
+      ],
+      "newsletter": [
+        "subscribe"
+      ],
+      "leaderboard": [
+        "activity",
+        "survival"
+      ],
+      "admin": [
+        "counts",
+        "market-providers",
+        "support"
+      ],
+      "market": [
+        "catalog",
+        "history",
+        "universe"
+      ],
+      "backtest": [
+        "instruments",
+        "run",
+        "scan",
+        "walkforward"
+      ],
+      "rfq": [
+        "run",
+        "state",
+        "tick",
+        "trade"
+      ],
+      "services": [
+        "availability"
+      ],
+      "plans": [
+        "checkout",
+        "entitlement",
+        "list",
+        "status"
+      ],
+      "kit": [
+        "availability",
+        "checkout",
+        "download",
+        "manifest"
+      ],
+      "support": [
+        "report",
+        "status"
+      ],
+      "learning": [
+        "catalog"
+      ],
+      "survival": [
+        "answer",
+        "list",
+        "next",
+        "start",
+        "state"
+      ],
+      "notebooks": [
+        "export",
+        "list",
+        "open",
+        "run"
+      ]
+    },
+    "command_count": 96,
+    "notice": "Command coverage is not proof of a public sale, external service, human support or market demand."
+  },
+  "create_app_outside_checkout": true,
+  "learning_assets_loaded": true,
+  "anonymous_learning_rejected": true,
+  "builtin_notebook_executed": true,
+  "packaged_canonical_bs_and_node_calibration_executed": true,
+  "packaged_reference_executed_and_exported": true,
+  "counts": {
+    "practice_exercises": 14,
+    "practice_references": 14,
+    "survival_questions": 20,
+    "notebooks": 2
+  }
+}

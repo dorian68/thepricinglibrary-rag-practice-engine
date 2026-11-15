@@ -1,6 +1,6 @@
 # PRODUCTION_READINESS.md — ThePricingLibrary
 
-> Delivery audit closed 2026-11-10. A local PASS is not a deployed PASS.
+> Local hardening validated 2026-11-15. A local PASS is not a deployed PASS.
 
 Historical full release run: `reports/release_readiness_2026-07-25.json`
 (2026-07-25 13:02 UTC): 22/22 local gates PASS, zero local artifact blockers,
@@ -43,6 +43,27 @@ testing exception and does not alter the public production verdict below.
 
 ## Current verdict
 
+Product hardening, 15 November 2026: the implementation and its bounded
+acceptance criteria are recorded in `docs/PRODUCT_HARDENING_ACCEPTANCE.md` and
+`reports/product-hardening-2026-11-14/`. This cycle adds the authenticated learner
+CLI, true supported tool execution, faithful paper contracts, retained exercise
+attempts, fourteen runnable references, server-owned Survival, notebook
+execution, useful study exports and reviewed English curricula. English variants
+are served only when their raw bytes match the independently accepted index.
+The final consolidated `REPORT.md` in that folder supersedes earlier
+feature-local verdicts for this changed scope. **Technical RL PASS local;
+independent Business PASS local, 91.25/100 expert judgment.** The full backend
+run passed 593 tests before the final additive progress patch; 75 focused tests
+passed after it. These overlapping counts are not summed. The final production
+build, packaged CLI outside the checkout, true bilingual content, retained-work
+journeys and mobile budgets pass. Historical reports below remain dated evidence.
+
+Optiquant IA is the intended entity; its complete legal/support configuration
+remains unverified. No address from another product has been reused and no
+missing field has been invented. Public checkout remains closed. Local technical
+or Business PASS does not certify source rights,
+real Supabase email, live billing, deployed infrastructure or target-user demand.
+
 English Interview Lab and functional/UX corrections, 2026-11-14: **Technical RL
 PASS local; independent Business Client Mystère PASS local, 94.25/100**. Evidence
 is in `reports/interview-lab-2026-11-14/technical-review.md` and
@@ -68,12 +89,12 @@ rights, human review or market demand. The production-sale verdict below remains
 closed. No new paid plan or checkout bypass was introduced for the signed pilot.
 
 ```text
-Technical RL backend gate:     PASS (319 local tests + production guard; deployed contract not matched)
-Frontend build gate:          PASS (local production build, 2026-11-09)
-Frontend dependency gate:     PASS runtime (0 alerts); WARN toolchain (12 moderate, no high/critical)
-Frontend performance gate:     PASS local (FCP 1824 ms, LCP 3468 ms, CLS 0.0278; median/worst interaction 96/112 ms)
-Entitlement/privacy gate:       PASS (Technical RL 99/100, local)
-Paid-course content gate:      PASS-CLOSED (12/12 scripts pass locally)
+Technical RL backend gate:     PASS local (593 full, then 75 focused; production guard and installed package)
+Frontend build gate:          PASS (local production build, 2026-11-15)
+Frontend dependency gate:     PASS runtime (0 alerts); WARN toolchain (11 moderate, no high/critical)
+Frontend performance gate:     PASS local (FCP 2244 ms, LCP 3516 ms, CLS 0.01675; median/worst interaction 120/136 ms)
+Entitlement/privacy gate:       PASS local (server identity/owner/plan; no external identity attestation)
+Paid-course content gate:      PASS-CLOSED (12 FR preserved; 12 reviewed EN hash-accepted privately)
 Starter Kit Client Mystere:    PASS-CLOSED (local artifact verified; pilot pending)
 Live sale gate:                FAIL-CLOSED (14 local public values missing; public billing configured=false/mode=mock)
 Overall production verdict:    NO
@@ -306,7 +327,7 @@ replaced with synthetic records.
    with at least four satisfied target users and no incorrect number or blocking
    file.
 10. **Toolchain dependency follow-up:** the runtime dependency gate is now clean
-   after the November audit, including the React Router update. Twelve moderate
+   after the November audit, including the React Router update. Eleven moderate
    development-tool advisories remain in the full npm audit; none are high or
    critical. Track the upstream minimatch/selector-parser toolchain fixes.
 

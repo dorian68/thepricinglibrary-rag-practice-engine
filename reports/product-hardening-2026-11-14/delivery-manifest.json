@@ -1,0 +1,125 @@
+{
+  "schema_version": "tpl.delivery.manifest.v1",
+  "validated_at_utc": "2026-11-15T01:39:19.268644+00:00",
+  "release_tag": "tpl-product-hardening-2026-11-15",
+  "rollback_tag": "tpl-pre-hardening-2026-11-14",
+  "branch": "codex/2026-11-14-interview-lab",
+  "source_commits": {
+    "frontend": "724c2b5fc440b14c75c12028812146c06457e86f",
+    "backend": "16e00d577002f0f53df1dce0a5f909da6a881352"
+  },
+  "verdicts": {
+    "technical_local": "PASS",
+    "business_local": "PASS",
+    "public_sale": "NO-GO: external evidence remains unverified"
+  },
+  "validation": {
+    "backend_full_before_final_projection": 593,
+    "backend_focused_after_projection": 75,
+    "test_counts_overlap": true,
+    "frontend": {
+      "verdict": "PASS_LOCAL",
+      "scope": "Technical frontend C2; real API workflows and independent Business corrections; external sale/payment/rights/deployment gates separate",
+      "full_checks": 30,
+      "full_axe_states": 6,
+      "full_axe_violations": 0,
+      "continuity_checks": 13,
+      "continuity_axe_states": 4,
+      "math_checks": 5,
+      "math_axe_violations": 0,
+      "python_references": 14,
+      "performance": {
+        "verdict": "PASS",
+        "fcp_ms": 2244,
+        "lcp_ms": 3516,
+        "cls": 0.0167507,
+        "interaction_count": 3,
+        "interaction_median_ms": 120,
+        "interaction_max_ms": 136,
+        "evidence": "performance-final-prefetch.log"
+      },
+      "qa_servers_stopped": [
+        8429,
+        8434
+      ],
+      "user_surfaces_preserved": [
+        5173,
+        4195
+      ]
+    },
+    "learner_cli_named_commands": 96,
+    "english_courses": 12,
+    "english_lessons": 108,
+    "practice_references": 14,
+    "business_expert_score_not_customer_data": 91.25,
+    "performance": {
+      "profile": "mobile-constrained-v1",
+      "budgets": {
+        "firstContentfulPaintMs": 2500,
+        "largestContentfulPaintMs": 4000,
+        "cumulativeLayoutShift": 0.1,
+        "interactionLatencyMs": 300,
+        "maxInteractionLatencyMs": 400
+      },
+      "loadMetrics": {
+        "firstContentfulPaintMs": 2244,
+        "largestContentfulPaintMs": 3516,
+        "cumulativeLayoutShift": 0.016750715039086084,
+        "layoutShifts": [
+          {
+            "value": 0.016506189821182942,
+            "startTime": 3489.399999856949,
+            "sources": [
+              "body"
+            ]
+          },
+          {
+            "value": 0.0002445252179031421,
+            "startTime": 7100.799999952316,
+            "sources": [
+              "span.badge"
+            ]
+          }
+        ],
+        "domContentLoadedMs": 2040.5999999046326,
+        "loadEventMs": 2047.5,
+        "scriptTransferBytes": 127450,
+        "scriptCount": 3
+      },
+      "interactionMetrics": {
+        "interactionCount": 3,
+        "interactionLatencyMs": 120,
+        "maxInteractionLatencyMs": 136,
+        "samplesMs": [
+          56,
+          120,
+          136
+        ]
+      }
+    },
+    "npm_runtime_vulnerabilities": 0,
+    "npm_full_development_moderate": 11,
+    "npm_full_high_critical": 0
+  },
+  "publications": {
+    "code_and_reports": true,
+    "private_courses_corpus_databases_credentials_screenshots": false,
+    "default_branch_merged": false,
+    "public_domain_deployed": false
+  },
+  "limitations": [
+    "Real identity/email, payments, commercial source rights, legal/support and public deployment unverified",
+    "Paper positions are process-memory scenario records; no broker order",
+    "French surrounding desk copy remains; do not promise the whole app entirely English",
+    "Local expert review is not student satisfaction, retention, hiring outcome or willingness to pay",
+    "An old temporary smoke folder cleanup was automatically rejected: blocked by policy; left ignored locally"
+  ],
+  "github_push_warning": {
+    "scope": "default branch, not merged by this delivery",
+    "vulnerabilities": 98,
+    "high": 31,
+    "moderate": 56,
+    "low": 11
+  },
+  "ci_scope": "Code-only workflows updated. Local checks passed; push-run status was not attested (GitHub connector exposes PR runs only; gh read failed with unexpected EOF)."
+}

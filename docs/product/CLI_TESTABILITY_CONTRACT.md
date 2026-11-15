@@ -3,7 +3,8 @@
 > Every core journey must be reproducible from the CLI, without the UI. This
 > contract lists what EXISTS today (grounded in the repo, 2026-06-06) and what is
 > MISSING. The Technical RL Agent owns closing the gaps. Status evidence below
-> is current through 2026-07-25.
+> includes the authenticated learner client added on 2026-11-15. Historical
+> checks below retain their dates and scope.
 
 ---
 
@@ -20,6 +21,35 @@ requires `--basetemp=.pytest_tmp` (default temp throws WinError 5).
 ---
 
 ## A. Backend — EXISTING and required commands
+
+Learner CLI hardening (2026-11-15): install the backend package, then run
+`tpl coverage` and `tpl --help`. The versioned client exposes 96 named commands
+for auth, courses, Interview, exercises, references, nine calculation engines,
+Survival, notebooks, exports, community, jobs/blog, market/backtest, RFQ, support,
+plans/Kit and explicit operator reads/publications. Maintenance orchestration
+continues to use `python -m pricinglibrary_rag.cli`.
+
+`python scripts/smoke_learner_cli.py` runs real CLI subprocesses against an
+isolated signed HTTP app, transport/auth protocol fixtures and the publication
+hash gate. `python scripts/check_learner_package.py` builds and installs the
+public wheel in a private prefix and checks entrypoint, API imports, packaged
+assets, Python references and the bundled Node calibration outside the checkout.
+Neither command proves an external provider, payment or deployment is live.
+
+`python scripts/serve_learner_fixture.py --port 8432` provides a reproducible,
+loopback-only cohort for API and headless tests with no desktop control. Its
+credential file is private and ignored; test users/plans are labelled fixtures.
+Real development access is explicit through `tpl auth dev-session`; normal
+Supabase signup/login/recovery/verification/refresh/password/logout use the same
+provider protocol as the site. See backend `docs/LEARNER_CLI.md` for commands,
+inputs, permissions, formats, exit codes and secret handling.
+
+Frontend hardening checks run through `smoke:product-hardening`,
+`smoke:product-hardening:browser`, `smoke:notebook:browser-runtime` and the
+cycle-two smoke scripts, in addition to the existing full technical gate.
+The headless browser is automated from the CLI and never controls the user's
+desktop. A command inventory is coverage of the interface, not proof of all
+input combinations or of commercial readiness.
 
 English interview pilot (2026-11-14): backend `python scripts/smoke_interview_lab.py`
 exercises signed non-admin access, numerical attempts, immutable/idempotent
@@ -318,7 +348,7 @@ A journey is CLI-testable when:
 4. it runs offline where possible (`TPL_LLM_PROVIDER=template`) or documents the
    credential it needs.
 
-## G. Current coverage verdict (updated 2026-06-30)
+## G. Historical coverage verdict (2026-06-30)
 
 - Course authoring + quality (J4, J1 content): **CLI-testable ✅**.
 - Verified calculators: **CLI-testable ✅** (via pytest/controls).

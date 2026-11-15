@@ -1,0 +1,30 @@
+{
+  "verdict": "PASS_LOCAL",
+  "scope": "Technical frontend C2; real API workflows and independent Business corrections; external sale/payment/rights/deployment gates separate",
+  "full_checks": 30,
+  "full_axe_states": 6,
+  "full_axe_violations": 0,
+  "continuity_checks": 13,
+  "continuity_axe_states": 4,
+  "math_checks": 5,
+  "math_axe_violations": 0,
+  "python_references": 14,
+  "performance": {
+    "verdict": "PASS",
+    "fcp_ms": 2244,
+    "lcp_ms": 3516,
+    "cls": 0.0167507,
+    "interaction_count": 3,
+    "interaction_median_ms": 120,
+    "interaction_max_ms": 136,
+    "evidence": "performance-final-prefetch.log"
+  },
+  "qa_servers_stopped": [
+    8429,
+    8434
+  ],
+  "user_surfaces_preserved": [
+    5173,
+    4195
+  ]
+}

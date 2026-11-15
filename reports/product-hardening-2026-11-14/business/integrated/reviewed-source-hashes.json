@@ -1,0 +1,69 @@
+{
+  "at": "2026-11-15T00:50:51.288437+00:00",
+  "scope": "Public reviewed source bytes; no curriculum text, database or credential file included",
+  "backend_commit": "16e00d5",
+  "frontend_commit_base": "849069c",
+  "frontend_working_changes": true,
+  "files": [
+    {
+      "path": "WEBSITE/thepricinglab/src/App.tsx",
+      "sha256": "b114f4f0cf3dc6508470c5600ca8e298f8643aab7f02e72ee9874ceb15d98a4c"
+    },
+    {
+      "path": "WEBSITE/thepricinglab/src/claude/ClaudeFrontend.jsx",
+      "sha256": "c2c418b98c33ef53f1f16b370b396e9118339a36afcc24b42ee183fd310fdc90"
+    },
+    {
+      "path": "WEBSITE/thepricinglab/src/claude/claude.css",
+      "sha256": "6dd73e61799c01f7b45e22ad5da861ec54b30291739161b1524f1badf3d596db"
+    },
+    {
+      "path": "WEBSITE/thepricinglab/src/claude/CourseMarkdown.jsx",
+      "sha256": "4604e96fd698532d96f2a392e76f09b3ec7a2f488201c11d5800486df796c58f"
+    },
+    {
+      "path": "WEBSITE/thepricinglab/src/claude/ExerciseAttempt.jsx",
+      "sha256": "dcad5a4a8f87a67a9abe7e1946a85aa6b2711df67e1a5095b91ada1d2b1354a7"
+    },
+    {
+      "path": "WEBSITE/thepricinglab/src/claude/ServerSurvival.jsx",
+      "sha256": "215a9d5e1e95ddf628b78a9eff0c6e038588df84ce7ca147ae5767d88d396faa"
+    },
+    {
+      "path": "WEBSITE/thepricinglab/src/claude/practiceEngine.js",
+      "sha256": "b1fe84322c1d6229800160f568b96baea0bb957e2ebd1e00ec3f61fef14a8bfb"
+    },
+    {
+      "path": "WEBSITE/thepricinglab/src/agent/AgentRoomReal.jsx",
+      "sha256": "ba011f2f5ae42fd527584383ad1c0c0b09ee511ff3d028c96dd25f5bd813e5d1"
+    },
+    {
+      "path": "WEBSITE/thepricinglab/src/agent/DeskContract.jsx",
+      "sha256": "a563341f18a43b96932895e15afb50a0049cb0d737d87aacfe460e96043f8ba2"
+    },
+    {
+      "path": "Tools/pricinglibrary_rag_backend/pricinglibrary_rag/api.py",
+      "sha256": "29f246986668741188e662bc96783c455787f7911ab041fb5ea7c59dd7deedef"
+    },
+    {
+      "path": "Tools/pricinglibrary_rag_backend/pricinglibrary_rag/learning_workflows.py",
+      "sha256": "4520b5142c5e99f8aa7706c0aa7ebda1514d916b66acc692d4f479fa9119ffdd"
+    },
+    {
+      "path": "Tools/pricinglibrary_rag_backend/pricinglibrary_rag/practice_references.py",
+      "sha256": "e0b3aee8394cf2ef47ccbd3e70725d29b58bbf006edd74e1e5ece9c5560b20ea"
+    },
+    {
+      "path": "Tools/pricinglibrary_rag_backend/pricinglibrary_rag/learning_assets/practice_references.json",
+      "sha256": "afb8087b964e18dc101388bd3d1a4d3b1cbf21df5af5976b91fb948ad715926f"
+    },
+    {
+      "path": "Tools/pricinglibrary_rag_backend/pricinglibrary_rag/learning_assets/survival_questions.json",
+      "sha256": "541fd32598783aa5b11d1022ab0753ac9086de1446f43b64e664476a2b09d5f3"
+    },
+    {
+      "path": "Tools/pricinglibrary_rag_backend/pricinglibrary_rag/desk_agents.py",
+      "sha256": "d5bc79ad0e2c7aa2e8c26258ca40378c8e14eb5bf012eb7952fc5e77cba149ca"
+    }
+  ]
+}

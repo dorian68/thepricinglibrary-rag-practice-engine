@@ -1,0 +1,38 @@
+{
+  "at": "2026-11-15T00:50:51.288437+00:00",
+  "reviewer_role": "business_client_mystere",
+  "verdict": "PASS",
+  "scope": "Specified local integrated preparation journeys; real signed fixture entitlements and test-only records",
+  "scores_expert_judgment_not_user_data": {
+    "clarity": 93,
+    "trust": 95,
+    "usefulness": 95,
+    "commercial_readiness_local_journey": 82,
+    "simple_mean": 91.25
+  },
+  "closed_findings": [
+    "C2-B01 saved-work dashboard and exact older-attempt resume",
+    "C2-B02 unsupported and out-of-domain RFQ recovery",
+    "C2-B03 actual wide equation keyboard access"
+  ],
+  "open_p2": [
+    "French surrounding desk interaction copy for an English-first target"
+  ],
+  "public_sale_verdict": "NO-GO external gates not verified",
+  "performance_verdict": "Separate final Technical RL gate; not inferred here",
+  "not_verified_here": [
+    "real identity-provider signup/email/reset",
+    "live Stripe purchase/refund and entitlement",
+    "source commercial rights",
+    "public deployment",
+    "actual RAG/LLM provider operation",
+    "actual candidate learning/satisfaction/retention/willingness to pay",
+    "native screen reader and global WCAG certification"
+  ],
+  "final_proofs": [
+    "final-targeted-retest.json",
+    "rfq-refusal-final-v2.json",
+    "math-keyboard-retest.json"
+  ],
+  "source_snapshot": "reviewed-source-hashes.json"
+}

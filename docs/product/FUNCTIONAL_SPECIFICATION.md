@@ -885,6 +885,29 @@ the CLI without the UI.
   substantive content, metadata removal, no macro/external relationship and a
   manifest checksum matching the staged DOCX.
 
+### Product hardening acceptance — 15 November 2026
+
+The bounded acceptance contract is `docs/PRODUCT_HARDENING_ACCEPTANCE.md`.
+It supplements the historical features above without removing routes, stored
+activity or the accepted Signature hero and horizontal brand assets.
+
+| Feature | Inputs, output and state | Acceptance criteria |
+| --- | --- | --- |
+| F-CLI-USER — authenticated learner client | `tpl` exposes named commands against the same HTTP API, signed subject and server entitlement as the website. Supabase auth reads secrets from a masked prompt/stdin and stores sessions privately. Explicit loopback `auth dev-session` is a development exception. | Real CLI subprocesses, owner/plan refusal, structured nonzero errors, bounded transport, redirect refusal, safe retry and package execution outside the checkout pass. Provider fixtures do not certify real signup email delivery. See backend `docs/LEARNER_CLI.md`. |
+| F-EXO-ATTEMPT — retained written work | Task → immutable answers → worked feedback → optional self-review; generic saved exercises and fourteen canonical briefs share the private attempt contract. | Stable request IDs do not duplicate or overwrite attempts, another owner receives 404, numbering matches the questions, reload restores the attempt, exports contain the actual work. Prose is self-reviewed without a fabricated automatic grade. |
+| F-EXO-REFERENCE — reproducible corrections | Fourteen original reference tickets expose assumptions, conventions, computed results and checks, plus standalone Python and valid Jupyter exports. API execution accepts an allowlisted ID, not arbitrary learner code. | Downloaded scripts and notebook cells execute outside the repository; numerical oracles check the results. Monte Carlo uncertainty and illustrative-model limits remain visible. Existing briefs stay available. |
+| F-SURVIVAL-SERVER — consistent practice session | Start → answer under a server deadline → retained feedback → Next → completion or three lost lives. Twenty Core questions, thirty seconds per question and the historical scoring rule. | Reload preserves time, question and feedback; concurrent/duplicate requests are idempotent; cross-owner reads fail; the client cannot submit a score. The session remains unproctored and excluded from a verified leaderboard. |
+| F-COURSE-EN — actual bilingual curricula | A course language selects a real private script. French delivery keeps compatibility. English requires the strict-98 content gate, independent review, an accepted index entry and exact raw SHA-256. | All twelve curricula contain actual English lessons and checked examples; French file hashes stay unchanged. Missing/unreviewed/changed English bytes are unavailable with an actionable error, no silent French fallback and no completion action over an error page. Catalogue and reader agree on available languages. |
+| F-NOTEBOOK-RUN — real notebook execution | Two original notebooks export `.py`/`.ipynb`; the browser runs Python in a cancellable Worker. The server only runs the bounded trusted examples. | Exported files execute; outputs match the actual calculation. Startup/timeout/CDN failure has retry and a local-Python alternative. The barrier challenge retains its ticket and monitoring assumptions. |
+| F-LEARNING-PORTABLE — useful study integrations | Private Interview report/CSV, exposed-case Anki TSV and offset-aware UTC iCalendar plan. | Unseen primary answers cannot be exported into cards before exposure; CSV strings guard spreadsheet formulas; ICS timestamps and UTF-8 folding are valid. No account connection, attendance or mastery is inferred from a download. |
+| F-DESK-TRUST — honest pricing and paper state | Supported tools compute from explicit contracts; unsupported descriptors return unavailable. Black-76 handles futures, bounded seeded GBM Monte Carlo prices the stated autocall; paper positions retain product, units and owner. | Independent pricing checks pass. The displayed contract agrees with calculation inputs. A retry after a lost response retains one position and its original quote. Unassessed limits do not become approved; process-memory persistence and model limitations are explicit. |
+| F-PROGRESS-TRUTH — meaningful continuity | Dashboard projects saved Interview work, written exercise attempts/self-reviews and Survival answers/runs separately from historical lesson activity. Exact resume includes the retained attempt or run ID. | No initial authenticated request races the token; empty states are true; another account is separate; reload restores the actual task, including an older attempt reviewed more recently. The read-only projection adds no historical event, score or profile. Counts and completion do not claim certified mastery. |
+
+Read routes are private/no-store when they contain learner history or paid
+content. New learning state uses additive SQLite tables; existing course scores,
+exercise records and original French files are retained. Registry discovery and
+actual executable capability remain separate measurements.
+
 ## 18. Production readiness criteria
 
 See `PRODUCTION_READINESS.md`. The implemented commercial matrix is authoritative:

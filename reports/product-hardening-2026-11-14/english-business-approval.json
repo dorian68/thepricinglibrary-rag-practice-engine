@@ -1,0 +1,54 @@
+{
+  "verdict": "PASS",
+  "reviewer_role": "business_client_mystere",
+  "courses": [
+    {
+      "slug": "vanilla-options-quote",
+      "sha256": "63029667621da09f22d4145af11070b8dd425dc0b044a670628e8eb2cfa9b485"
+    },
+    {
+      "slug": "options-book-greeks-pnl",
+      "sha256": "6506559f46b05160e0aadcaa3f994104bc3fc9824f67e4629783d62ad0736b2f"
+    },
+    {
+      "slug": "rates-swaps-dv01",
+      "sha256": "90d6af03e7e9b718d73659f3f330253c3f71cfb2ebbbe07bcfe1091decbe98ef"
+    },
+    {
+      "slug": "yield-curve-bootstrapping",
+      "sha256": "0fc83850ca30313489bedb1693d2fe1735a4de1f68fce4da34cbe7d3eeac48be"
+    },
+    {
+      "slug": "fixed-income-bonds-duration",
+      "sha256": "d76bb8648e9bbd36c2d668a417e166f5795e39cda1bbeba557075baeb17a495a"
+    },
+    {
+      "slug": "implied-volatility-smile",
+      "sha256": "ac87f27cb13a44c3b6c81259b9d948b4eae4a2fca4ad0fa4a5838f702803fd7c"
+    },
+    {
+      "slug": "monte-carlo-pricing",
+      "sha256": "e96deffa2443d33dcb8da2c7eb16d01553776d2d6c7105f46f6c9172ab70514e"
+    },
+    {
+      "slug": "stochastic-calculus-for-hedging",
+      "sha256": "d48d8ce1bd4666cbd80dde6d58bdcc5990a3f2b7c95a7c830b6e7d080be18969"
+    },
+    {
+      "slug": "barrier-options-gap-risk",
+      "sha256": "29469253c68fc13a1f8dfffa952b9749dd9263e973ca3754dc06f4e32bf837d2"
+    },
+    {
+      "slug": "credit-derivatives-cds",
+      "sha256": "d7bcc37f404dfd89baac7bc3a5fd7d8b1c506a09e3cd3a57f0cfc39097135d2c"
+    },
+    {
+      "slug": "structured-products-autocall",
+      "sha256": "b14f2ee8bf53bb3134f1186a6f54ddffad14bd348b9a0ad5a63782df67a6aa44"
+    },
+    {
+      "slug": "market-risk-var-stress",
+      "sha256": "ce7a70f2f10c67d2df78f6e7f5eafdffd34a159ffeb4565e4a765220ee52a206"
+    }
+  ]
+}

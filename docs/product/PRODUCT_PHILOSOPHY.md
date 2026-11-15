@@ -83,8 +83,17 @@ The launch path is: select a bounded interview session → attempt a ticket and
 write the reasoning → compare the deterministic correction → self-review the
 argument → test a changed assumption → resume or export the actual record.
 Anonymous first-case results are unsaved. Signed pilot access currently adds no
-paid-plan requirement. Library courses and the existing Starter Kit are labelled
-as French; they retain their separate access and public-sale requirements.
+paid-plan requirement. The library retains its twelve French curricula and now
+has twelve separately reviewed English curricula. English delivery requires the
+exact accepted file hash in the private language index; a draft does not become
+a published variant merely by existing. The existing French Starter Kit retains
+its separate access and public-sale requirements.
+
+The practical learning loop also retains written exercise attempts before
+correction, a clearly labelled self-review and reproducible Python/Jupyter
+references. Reports, CSV, revision cards and a voluntary calendar move the
+student's work into their existing study tools. These formats do not certify
+attendance, independent reasoning or hiring readiness.
 
 The library-authoring workflow remains:
 

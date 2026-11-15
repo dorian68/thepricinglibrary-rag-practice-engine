@@ -1,0 +1,152 @@
+{
+  "schema": "tpl.english-course.published-smoke.v1",
+  "verdict": "PASS",
+  "scope": "Fresh HTTP and CLI with real JWT verification and technical fixture identities/plans/rights flag; no external Supabase login, purchase or legal clearance is attested",
+  "source_corpus_access": "none; reads the already reviewed private course documents",
+  "courses": [
+    {
+      "course_id": "black-scholes",
+      "slug": "vanilla-options-quote",
+      "raw_sha256": "63029667621da09f22d4145af11070b8dd425dc0b044a670628e8eb2cfa9b485",
+      "content_language": "en",
+      "anonymous_denied": true,
+      "free_denied": true,
+      "member_pro_read": true,
+      "lessons": 8,
+      "quiz_questions": 5,
+      "private_metadata_absent": true
+    },
+    {
+      "course_id": "yield-curves",
+      "slug": "yield-curve-bootstrapping",
+      "raw_sha256": "0fc83850ca30313489bedb1693d2fe1735a4de1f68fce4da34cbe7d3eeac48be",
+      "content_language": "en",
+      "anonymous_denied": true,
+      "free_denied": true,
+      "member_pro_read": true,
+      "lessons": 9,
+      "quiz_questions": 5,
+      "private_metadata_absent": true
+    },
+    {
+      "course_id": "greeks",
+      "slug": "options-book-greeks-pnl",
+      "raw_sha256": "6506559f46b05160e0aadcaa3f994104bc3fc9824f67e4629783d62ad0736b2f",
+      "content_language": "en",
+      "anonymous_denied": true,
+      "free_denied": true,
+      "member_pro_read": true,
+      "lessons": 9,
+      "quiz_questions": 5,
+      "private_metadata_absent": true
+    },
+    {
+      "course_id": "rates-swaps",
+      "slug": "rates-swaps-dv01",
+      "raw_sha256": "90d6af03e7e9b718d73659f3f330253c3f71cfb2ebbbe07bcfe1091decbe98ef",
+      "content_language": "en",
+      "anonymous_denied": true,
+      "free_denied": true,
+      "member_pro_read": true,
+      "lessons": 9,
+      "quiz_questions": 5,
+      "private_metadata_absent": true
+    },
+    {
+      "course_id": "fixed-income-bonds",
+      "slug": "fixed-income-bonds-duration",
+      "raw_sha256": "d76bb8648e9bbd36c2d668a417e166f5795e39cda1bbeba557075baeb17a495a",
+      "content_language": "en",
+      "anonymous_denied": true,
+      "free_denied": true,
+      "member_pro_read": true,
+      "lessons": 8,
+      "quiz_questions": 5,
+      "private_metadata_absent": true
+    },
+    {
+      "course_id": "implied-vol",
+      "slug": "implied-volatility-smile",
+      "raw_sha256": "ac87f27cb13a44c3b6c81259b9d948b4eae4a2fca4ad0fa4a5838f702803fd7c",
+      "content_language": "en",
+      "anonymous_denied": true,
+      "free_denied": true,
+      "member_pro_read": true,
+      "lessons": 9,
+      "quiz_questions": 5,
+      "private_metadata_absent": true
+    },
+    {
+      "course_id": "credit-derivatives",
+      "slug": "credit-derivatives-cds",
+      "raw_sha256": "d7bcc37f404dfd89baac7bc3a5fd7d8b1c506a09e3cd3a57f0cfc39097135d2c",
+      "content_language": "en",
+      "anonymous_denied": true,
+      "free_denied": true,
+      "member_pro_read": true,
+      "lessons": 8,
+      "quiz_questions": 5,
+      "private_metadata_absent": true
+    },
+    {
+      "course_id": "market-risk-var",
+      "slug": "market-risk-var-stress",
+      "raw_sha256": "ce7a70f2f10c67d2df78f6e7f5eafdffd34a159ffeb4565e4a765220ee52a206",
+      "content_language": "en",
+      "anonymous_denied": true,
+      "free_denied": true,
+      "member_pro_read": true,
+      "lessons": 9,
+      "quiz_questions": 5,
+      "private_metadata_absent": true
+    },
+    {
+      "course_id": "exotics",
+      "slug": "barrier-options-gap-risk",
+      "raw_sha256": "29469253c68fc13a1f8dfffa952b9749dd9263e973ca3754dc06f4e32bf837d2",
+      "content_language": "en",
+      "anonymous_denied": true,
+      "free_denied": true,
+      "member_pro_read": true,
+      "lessons": 9,
+      "quiz_questions": 5,
+      "private_metadata_absent": true
+    },
+    {
+      "course_id": "monte-carlo",
+      "slug": "monte-carlo-pricing",
+      "raw_sha256": "e96deffa2443d33dcb8da2c7eb16d01553776d2d6c7105f46f6c9172ab70514e",
+      "content_language": "en",
+      "anonymous_denied": true,
+      "free_denied": true,
+      "member_pro_read": true,
+      "lessons": 10,
+      "quiz_questions": 5,
+      "private_metadata_absent": true
+    },
+    {
+      "course_id": "stochastic",
+      "slug": "stochastic-calculus-for-hedging",
+      "raw_sha256": "d48d8ce1bd4666cbd80dde6d58bdcc5990a3f2b7c95a7c830b6e7d080be18969",
+      "content_language": "en",
+      "anonymous_denied": true,
+      "free_denied": true,
+      "member_pro_read": true,
+      "lessons": 10,
+      "quiz_questions": 5,
+      "private_metadata_absent": true
+    },
+    {
+      "course_id": "structured-products",
+      "slug": "structured-products-autocall",
+      "raw_sha256": "b14f2ee8bf53bb3134f1186a6f54ddffad14bd348b9a0ad5a63782df67a6aa44",
+      "content_language": "en",
+      "anonymous_denied": true,
+      "free_denied": true,
+      "member_pro_read": true,
+      "lessons": 10,
+      "quiz_questions": 5,
+      "private_metadata_absent": true
+    }
+  ]
+}
